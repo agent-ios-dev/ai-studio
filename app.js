@@ -35,6 +35,8 @@ const state = {
   nextResetAt: null,
   nextDailyResetAt: null,
   role: "user",
+  authType: "link",
+  email: null,
   profile: { displayName: "", aboutText: "", memoryEnabled: true },
   connected: false,
 };
@@ -70,7 +72,7 @@ function extractToken(value) {
   } catch { return trimmed; }
 }
 async function api(path, options = {}) {
-  if (!state.apiUrl || !state.token) throw new Error("Для доступа нужна личная ссылка и адрес API.");
+  if (!state.apiUrl || !state.token) throw new Error("Войдите в аккаунт, чтобы продолжить.");
   const response = await fetch(apiUrl(path), {
     ...options,
     headers: { "Authorization": `Bearer ${state.token}`, ...(typeof options.body === "string" ? { "Content-Type": "application/json" } : {}), ...options.headers },
@@ -108,6 +110,8 @@ async function connect(askForName = true) {
     state.nextResetAt = profile.nextResetAt;
     state.nextDailyResetAt = profile.nextDailyResetAt;
     state.role = profile.role || "user";
+    state.authType = profile.authType || "link";
+    state.email = profile.email || null;
     state.profile = personalization;
     state.defaultModel = modelAvailable(personalization.defaultModel) ? personalization.defaultModel : "gemini-3.8-flash";
     localStorage.setItem("chat_default_model", state.defaultModel);
@@ -158,13 +162,15 @@ function renderQuota() {
   $("quotaLabel").textContent = smart ? "Лимит Astra и Sol" : "Дневной лимит";
   $("quotaPercent").textContent = state.connected ? `${smart ? smartPercent : percent}%` : "—";
   $("quotaFill").style.width = state.connected ? `${smart ? smartPercent : percent}%` : "0%";
-  $("quotaText").textContent = state.connected ? `${smart ? smartPercent : percent}% лимита осталось` : "Откройте личную ссылку";
-  $("modePill").textContent = state.connected ? "Бета" : "Доступ по ссылке";
+  $("quotaText").textContent = state.connected ? `${smart ? smartPercent : percent}% лимита осталось` : "Войдите в аккаунт";
+  $("modePill").textContent = state.connected ? "Бета" : "Вход по почте";
   if (state.currentId === "temporary") $("modePill").textContent = "Временный чат";
-  $("planLabel").textContent = state.connected ? "Бета · личный доступ" : "Требуется вход";
-  $("connectionDescription").textContent = state.connected ? "Сервер подключён. История и лимит привязаны к личной ссылке." : state.apiUrl ? "Откройте личную ссылку доступа. Если она уже сохранена, проверьте подключение." : "Сервис временно не настроен.";
+  $("planLabel").textContent = state.connected ? (state.email || "Бета · личный доступ") : "Требуется вход";
+  $("connectionDescription").textContent = state.connected ? (state.email ? `Вы вошли как ${state.email}. История и лимиты сохраняются в аккаунте.` : "Сервер подключён. История и лимит привязаны к личной ссылке.") : "Войдите по почте или по прежней личной ссылке.";
+  $("loginButton").classList.toggle("hidden", state.connected);
+  $("legacyAccessSection").classList.toggle("hidden", state.authType === "email");
   $("connectionDot").classList.toggle("connected", state.connected);
-  $("welcomeText").textContent = state.connected ? "Выберите модель и напишите сообщение. История синхронизируется по вашей личной ссылке." : "Выберите модель и напишите сообщение. Для реальных ответов потребуется личная ссылка доступа.";
+  $("welcomeText").textContent = state.connected ? "Выберите модель и напишите сообщение. История синхронизируется с вашим профилем." : "Войдите по почте, чтобы начать чат. Аккаунт создаётся при первом входе.";
   $("limitsNumber").textContent = state.connected ? `${percent}%` : "—";
   $("limitsFill").style.width = state.connected ? `${percent}%` : "0%";
   $("limitsCaption").textContent = state.connected ? `осталось ${state.remaining} из ${state.limit} запросов сегодня` : "лимита осталось сегодня";
@@ -172,7 +178,7 @@ function renderQuota() {
   $("smartLimitsFill").style.width = state.connected ? `${smartPercent}%` : "0%";
   $("smartLimitsCaption").textContent = state.connected ? `осталось ${state.smartRemaining} из ${state.smartLimit} запросов сегодня` : "5 запросов в сутки на две модели вместе";
   $("resetBalance").textContent = state.connected ? `${state.resetBalance} из ${state.resetCap}` : "—";
-  $("nextResetText").textContent = state.connected ? (state.nextResetAt ? `Начисление: +${state.resetGrantAmount} каждые ${state.resetIntervalDays} дн. Следующее — ${new Date(state.nextResetAt).toLocaleString("ru-RU")}.` : "Запас сбросов заполнен.") : "Подключите личную ссылку, чтобы увидеть сбросы.";
+  $("nextResetText").textContent = state.connected ? (state.nextResetAt ? `Начисление: +${state.resetGrantAmount} каждые ${state.resetIntervalDays} дн. Следующее — ${new Date(state.nextResetAt).toLocaleString("ru-RU")}.` : "Запас сбросов заполнен.") : "Войдите, чтобы увидеть сбросы.";
   $("useResetButton").disabled = !state.connected || state.resetBalance < 1 || state.remaining >= state.limit;
   $("adminLink").classList.toggle("hidden", state.role !== "admin");
   if (state.role === "admin" && state.token) $("adminLink").href = `./admin.html#invite=${encodeURIComponent(state.token)}`;
@@ -395,7 +401,7 @@ function renderVoice() {
 async function toggleVoice() {
   if (voiceRecorder?.state === "recording") { voiceRecorder.stop(); return; }
   if (voiceProcessing || state.busy) return;
-  if (!state.connected) { showToast("Для голосового ввода нужна личная ссылка доступа."); openSettings(); return; }
+  if (!state.connected) { openAuth(); return; }
   if (selectedModel().disabled) { showToast("GPT-6 Luna: технические работы."); return; }
   if ((isSmartModel(state.model) ? state.smartRemaining : state.remaining) <= 0) { showToast(isSmartModel(state.model) ? "Лимит Astra и Sol исчерпан. Попробуйте завтра." : "Дневной лимит исчерпан. Попробуйте завтра."); return; }
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) { showToast("Этот браузер не поддерживает запись с микрофона."); return; }
@@ -476,7 +482,7 @@ function readFile(file) {
 }
 async function sendMessage() {
   if (state.busy || voiceRecorder?.state === "recording" || voiceProcessing) return;
-  if (!state.connected) { showToast("Для чата нужна личная ссылка доступа."); openSettings(); return; }
+  if (!state.connected) { openAuth(); return; }
   if (selectedModel().disabled) { showToast("GPT-6 Luna: технические работы."); return; }
   if (currentChat() && !MODELS.some((model) => model.id === currentChat().model)) { showToast("Модель этого чата удалена. Начните новый чат."); return; }
   const content = $("promptInput").value.trim();
@@ -548,6 +554,124 @@ function renderSearch() {
   chats.forEach((chat) => { const result = document.createElement("button"); result.className = "search-result"; result.textContent = chat.title; result.addEventListener("click", () => { state.currentId = chat.id; state.model = chat.model; $("searchDialog").close(); renderAll(); closeMobile(); }); results.append(result); });
 }
 
+const emailLogin = { challengeId: null, email: "", resendAfter: 0, expiresAt: 0, busy: false, enabled: false };
+let emailLoginTimer;
+async function authApi(path, body) {
+  const response = await fetch(apiUrl(path), { method: body ? "POST" : "GET", headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  let result;
+  try { result = await response.json(); } catch { throw new Error("Сервер вернул неожиданный ответ."); }
+  if (!response.ok) throw new Error(result.error || "Не удалось войти. Попробуйте позже.");
+  return result;
+}
+function authError(message = "") { $("authError").textContent = message; $("authError").classList.toggle("hidden", !message); }
+function renderEmailLogin() {
+  const codeStep = !!emailLogin.challengeId;
+  $("emailLoginForm").classList.toggle("hidden", codeStep);
+  $("emailCodeForm").classList.toggle("hidden", !codeStep);
+  $("codeDestination").textContent = codeStep ? `Письмо с кодом отправлено на ${emailLogin.email}` : "";
+  $("sendCodeButton").disabled = emailLogin.busy || !emailLogin.enabled;
+  $("sendCodeButton").textContent = emailLogin.busy ? "Отправляем…" : "Получить код";
+  $("verifyCodeButton").disabled = emailLogin.busy;
+  $("verifyCodeButton").textContent = emailLogin.busy ? "Проверяем…" : "Войти";
+  $("changeEmailButton").disabled = emailLogin.busy;
+  $("legacyLoginButton").disabled = emailLogin.busy;
+  $("loginEmail").disabled = emailLogin.busy;
+  const seconds = Math.max(0, Math.ceil((emailLogin.resendAfter - Date.now()) / 1000));
+  $("resendCodeButton").disabled = emailLogin.busy || seconds > 0;
+  $("resendCodeButton").textContent = seconds ? `Повторить через ${seconds} с` : "Отправить ещё раз";
+}
+async function openAuth() {
+  if (state.connected) return;
+  if (emailLogin.challengeId && emailLogin.expiresAt <= Date.now()) emailLogin.challengeId = null;
+  authError();
+  renderEmailLogin();
+  if (!$("authDialog").open) $("authDialog").showModal();
+  closeMobile();
+  clearInterval(emailLoginTimer);
+  emailLoginTimer = setInterval(renderEmailLogin, 1000);
+  try {
+    const status = await authApi("/api/auth/status");
+    emailLogin.enabled = status.enabled;
+    if (!status.enabled) authError("Вход по почте пока недоступен. Старая личная ссылка продолжает работать.");
+  } catch { authError("Не удалось подключиться к серверу. Попробуйте позже."); }
+  renderEmailLogin();
+  (emailLogin.challengeId ? $("loginCode") : $("loginEmail")).focus();
+}
+async function requestEmailCode(email) {
+  if (emailLogin.busy || !emailLogin.enabled) return;
+  emailLogin.busy = true;
+  authError();
+  renderEmailLogin();
+  try {
+    const result = await authApi("/api/auth/request-code", { email });
+    Object.assign(emailLogin, result);
+    $("loginCode").value = "";
+  } catch (error) { authError(error.message); }
+  finally { emailLogin.busy = false; renderEmailLogin(); if (emailLogin.challengeId) $("loginCode").focus(); }
+}
+async function finishLogin(token) {
+  state.token = token;
+  localStorage.setItem("chat_access_token", token);
+  state.chats = [];
+  state.currentId = null;
+  state.tempChat = null;
+  state.files = [];
+  state.profile = { displayName: "", aboutText: "", memoryEnabled: true };
+  $("promptInput").value = "";
+  $("authDialog").close();
+  await connect();
+  if (state.connected) { emailLogin.challengeId = null; showToast("Вы вошли в аккаунт"); }
+}
+$("loginButton").addEventListener("click", openAuth);
+$("authDialog").addEventListener("close", () => clearInterval(emailLoginTimer));
+$("emailLoginForm").addEventListener("submit", (event) => { event.preventDefault(); requestEmailCode($("loginEmail").value.trim()); });
+$("resendCodeButton").addEventListener("click", () => { if (Date.now() >= emailLogin.resendAfter) requestEmailCode(emailLogin.email); });
+$("changeEmailButton").addEventListener("click", () => { emailLogin.challengeId = null; authError(); renderEmailLogin(); $("loginEmail").focus(); });
+$("emailCodeForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (emailLogin.busy) return;
+  emailLogin.busy = true;
+  authError();
+  renderEmailLogin();
+  try {
+    const result = await authApi("/api/auth/verify-code", { challengeId: emailLogin.challengeId, code: $("loginCode").value.trim() });
+    await finishLogin(result.token);
+  } catch (error) { authError(error.message); }
+  finally { emailLogin.busy = false; renderEmailLogin(); }
+});
+$("legacyLoginForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (emailLogin.busy) return;
+  const token = extractToken($("legacyLoginInput").value);
+  if (!/^[A-Za-z0-9_-]{32,}$/.test(token)) { authError("Вставьте корректную личную ссылку."); return; }
+  emailLogin.busy = true;
+  renderEmailLogin();
+  try { await finishLogin(token); $("legacyLoginInput").value = ""; }
+  finally { emailLogin.busy = false; renderEmailLogin(); }
+});
+$("logoutButton").addEventListener("click", async () => {
+  if (state.busy || voiceProcessing || voiceRecorder?.state === "recording") { showToast("Дождитесь завершения запроса."); return; }
+  try {
+    if (state.authType === "email") await api("/api/auth/logout", { method: "POST", body: "{}" });
+    localStorage.removeItem("chat_access_token");
+    state.token = "";
+    state.connected = false;
+    state.chats = [];
+    state.tempChat = null;
+    state.currentId = null;
+    state.files = [];
+    state.email = null;
+    state.authType = "link";
+    state.role = "user";
+    state.profile = { displayName: "", aboutText: "", memoryEnabled: true };
+    $("promptInput").value = "";
+    $("settingsDialog").close();
+    clearTimeout(dailyResetTimer);
+    renderAll();
+    showToast("Вы вышли из аккаунта");
+  } catch (error) { showToast(error.message); }
+});
+
 tokenFromUrl();
 renderAll();
 connect();
@@ -564,8 +688,9 @@ $("webSearchToggle").addEventListener("click", () => { if (state.model !== "gpt-
 document.addEventListener("click", (event) => { if (!event.target.closest(".model-control")) { $("modelMenu").classList.add("hidden"); $("modelTrigger").setAttribute("aria-expanded", "false"); } });
 $("settingsButton").addEventListener("click", openSettings);
 $("topSettings").addEventListener("click", openSettings);
-function openSettings() { $("defaultModelSelect").value = state.defaultModel; $("displayNameInput").value = state.profile.displayName; $("aboutTextInput").value = state.profile.aboutText; $("memoryEnabledInput").checked = state.profile.memoryEnabled; $("accessCodeInput").value = ""; $("accessCodeInput").placeholder = state.token ? "Личная ссылка уже сохранена" : "Вставьте личную ссылку"; $("settingsDialog").showModal(); closeMobile(); }
+function openSettings() { if (!state.connected) { openAuth(); return; } $("defaultModelSelect").value = state.defaultModel; $("displayNameInput").value = state.profile.displayName; $("aboutTextInput").value = state.profile.aboutText; $("memoryEnabledInput").checked = state.profile.memoryEnabled; $("accessCodeInput").value = ""; $("accessCodeInput").placeholder = state.token ? "Личная ссылка уже сохранена" : "Вставьте личную ссылку"; $("settingsDialog").showModal(); closeMobile(); }
 $("saveSettings").addEventListener("click", async () => {
+  if (state.busy || voiceProcessing || voiceRecorder?.state === "recording") { showToast("Дождитесь завершения запроса."); return; }
   const personalization = { displayName: $("displayNameInput").value.trim(), aboutText: $("aboutTextInput").value.trim(), defaultModel: $("defaultModelSelect").value, memoryEnabled: $("memoryEnabledInput").checked };
   state.defaultModel = $("defaultModelSelect").value;
   localStorage.setItem("chat_default_model", state.defaultModel);

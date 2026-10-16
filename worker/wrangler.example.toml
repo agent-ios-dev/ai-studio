@@ -4,6 +4,8 @@ compatibility_date = "2026-09-26"
 
 [vars]
 ALLOWED_ORIGIN = "https://YOUR_USERNAME.github.io"
+EMAIL_AUTH_ENABLED = "false"
+RESEND_FROM = "AI Studio <login@YOUR_VERIFIED_DOMAIN>"
 
 [[d1_databases]]
 binding = "DB"

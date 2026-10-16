@@ -68,6 +68,7 @@
           </div>
           <span class="topbar-spacer"></span>
           <span class="mode-pill" id="modePill">Бета</span>
+          <button class="auth-entry-button" id="loginButton" type="button">Войти</button>
           <button class="icon-button top-settings" id="topSettings" title="Настройки" aria-label="Настройки"><svg><use href="#i-settings"/></svg></button>
         </header>
 
@@ -104,6 +105,37 @@
       </main>
     </div>
 
+    <dialog id="authDialog" class="settings-dialog" aria-labelledby="authTitle">
+      <form method="dialog" class="dialog-head"><h2 id="authTitle">Войти в AI Studio</h2><button class="icon-button" aria-label="Закрыть"><svg><use href="#i-close"/></svg></button></form>
+      <div class="dialog-body">
+        <p class="auth-description">Вход и регистрация по коду из письма. Пароль не нужен.</p>
+        <p class="auth-error hidden" id="authError" role="alert"></p>
+        <form id="emailLoginForm">
+          <label class="field-label" for="loginEmail">Электронная почта</label>
+          <input class="text-field" id="loginEmail" type="email" autocomplete="email" maxlength="254" placeholder="you@example.com" required />
+          <button class="primary-button" id="sendCodeButton" type="submit">Получить код</button>
+          <p class="field-note">При первом входе создаётся новый аккаунт.</p>
+        </form>
+        <form id="emailCodeForm" class="hidden">
+          <p class="auth-description" id="codeDestination"></p>
+          <label class="field-label" for="loginCode">Код из письма</label>
+          <input class="text-field auth-code-input" id="loginCode" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required />
+          <p class="field-note">Код действует 10 минут. Если письма нет, проверьте «Спам».</p>
+          <button class="primary-button" id="verifyCodeButton" type="submit">Войти</button>
+          <div class="auth-secondary-actions"><button id="resendCodeButton" type="button">Отправить ещё раз</button><button id="changeEmailButton" type="button">Другая почта</button></div>
+        </form>
+        <details class="legacy-login">
+          <summary>Есть личная ссылка?</summary>
+          <p class="field-note">Войдите по ней в прежний профиль. Перенос на почту появится позже.</p>
+          <form id="legacyLoginForm">
+            <label class="field-label" for="legacyLoginInput">Личная ссылка</label>
+            <input class="text-field" id="legacyLoginInput" type="password" autocomplete="off" placeholder="Вставьте личную ссылку" required />
+            <button class="primary-button" id="legacyLoginButton" type="submit">Войти по ссылке</button>
+          </form>
+        </details>
+      </div>
+    </dialog>
+
     <dialog id="settingsDialog" class="settings-dialog">
       <form method="dialog" class="dialog-head"><h2>Настройки</h2><button class="icon-button" aria-label="Закрыть"><svg><use href="#i-close"/></svg></button></form>
       <div class="dialog-body">
@@ -119,20 +151,23 @@
         <label class="check-row"><input id="memoryEnabledInput" type="checkbox" checked /> Использовать память из других чатов</label>
         <p class="field-note">Модель сможет учитывать подходящие фрагменты сохранённых диалогов. Временные чаты в память не входят.</p>
         <div class="dialog-divider"></div>
+        <div id="legacyAccessSection">
         <label class="field-label" for="accessCodeInput">Личная ссылка доступа</label>
         <input class="text-field" id="accessCodeInput" type="password" placeholder="Вставьте личную ссылку или её код" autocomplete="off" />
         <p class="field-note">Вставьте ссылку один раз. Браузер запомнит доступ к вашим чатам и лимиту.</p>
+        </div>
         <button class="primary-button" id="saveSettings" type="button">Сохранить</button>
         <a class="admin-link hidden" id="adminLink" href="./admin.html">Открыть админку</a>
         <div class="dialog-divider"></div>
         <button class="danger-button" id="clearChats" type="button"><svg><use href="#i-trash"/></svg> Удалить все чаты</button>
+        <button class="danger-button" id="logoutButton" type="button">Выйти из аккаунта</button>
       </div>
     </dialog>
 
     <dialog id="nameDialog" class="settings-dialog" aria-labelledby="nameDialogTitle">
       <div class="dialog-head"><h2 id="nameDialogTitle">Как к вам обращаться?</h2></div>
       <form id="nameForm" class="dialog-body">
-        <p class="field-note">Сохраните имя в личном профиле. Оно будет доступно на всех устройствах по вашей ссылке.</p>
+        <p class="field-note">Сохраните имя в личном профиле. Оно будет доступно на всех устройствах после входа.</p>
         <label class="field-label" for="firstNameInput">Ваше имя</label>
         <input class="text-field" id="firstNameInput" type="text" maxlength="80" autocomplete="given-name" required autofocus placeholder="Введите имя" />
         <button class="primary-button" type="submit">Сохранить имя</button>

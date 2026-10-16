@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import worker, { dayKey, nextDailyResetAt } from "./index.js";
 
@@ -15,8 +16,18 @@ function database() {
     CREATE TABLE smart_usage (user_id TEXT, day TEXT, count INTEGER, PRIMARY KEY(user_id,day));
     CREATE TABLE files (id TEXT PRIMARY KEY, user_id TEXT, chat_id TEXT, name TEXT, mime TEXT, size INTEGER, r2_key TEXT, created_at INTEGER);
   `);
+  sqlite.exec(readFileSync(new URL("./migrations/003_email_auth.sql", import.meta.url), "utf8"));
   return {
     sqlite,
+    async batch(statements) {
+      sqlite.exec("BEGIN");
+      try {
+        const results = [];
+        for (const statement of statements) results.push(await statement.run());
+        sqlite.exec("COMMIT");
+        return results;
+      } catch (error) { sqlite.exec("ROLLBACK"); throw error; }
+    },
     prepare(sql) {
       const statement = sqlite.prepare(sql);
       let args = [];
@@ -47,6 +58,128 @@ function makeRequest(path, token, method = "GET", body = null, extraHeaders = {}
 const TOKEN_A = "a".repeat(43);
 const TOKEN_B = "b".repeat(43);
 const env = (db) => ({ DB: db, ALLOWED_ORIGIN: "https://site.example.test", ROUTER_CHEAP_API_KEY: "test-router-cheap", GEMINI_API_KEY: "test-gemini", OPENROUTER_API_KEY: "test-openrouter" });
+const emailEnv = (db) => ({ ...env(db), EMAIL_AUTH_ENABLED: "true", EMAIL_AUTH_SECRET: "test-hmac-secret", RESEND_API_KEY: "test-resend", RESEND_FROM: "AI Studio <login@example.test>" });
+
+test("email code creates a separate user, stores only hashes, and cannot be replayed", async (context) => {
+  const db = database();
+  setupUser(db, "old-link-user", TOKEN_A);
+  db.sqlite.exec("UPDATE users SET role = 'admin' WHERE id = 'old-link-user'");
+  const originalFetch = globalThis.fetch;
+  let mail;
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, "https://api.resend.com/emails");
+    assert.equal(options.headers.Authorization, "Bearer test-resend");
+    mail = JSON.parse(options.body);
+    return Response.json({ id: "test-mail" });
+  };
+  context.after(() => { globalThis.fetch = originalFetch; db.sqlite.close(); });
+  const environment = emailEnv(db);
+  const requested = await worker.fetch(makeRequest("/api/auth/request-code", null, "POST", { email: " New.User@Example.com " }), environment);
+  assert.equal(requested.status, 200);
+  const challenge = await requested.json();
+  assert.deepEqual(mail.to, ["new.user@example.com"]);
+  const code = mail.text.match(/\b\d{6}\b/)[0];
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM users").get().n, 1);
+  const stored = db.sqlite.prepare("SELECT code_hash FROM email_challenges WHERE id = ?").get(challenge.challengeId);
+  assert.equal(stored.code_hash.length, 64);
+  assert.notEqual(stored.code_hash, createHash("sha256").update(code).digest("hex"));
+  const verified = await worker.fetch(makeRequest("/api/auth/verify-code", null, "POST", { challengeId: challenge.challengeId, code }), environment);
+  assert.equal(verified.status, 200);
+  const login = await verified.json();
+  const me = await (await worker.fetch(makeRequest("/api/me", login.token), environment)).json();
+  assert.equal(me.authType, "email");
+  assert.equal(me.email, "new.user@example.com");
+  assert.equal(me.role, "user");
+  assert.equal(me.limit, 30);
+  assert.equal(me.smartRemaining, 5);
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM email_sessions WHERE token_hash = ?").get(login.token).n, 0);
+  const replay = await worker.fetch(makeRequest("/api/auth/verify-code", null, "POST", { challengeId: challenge.challengeId, code }), environment);
+  assert.equal(replay.status, 400);
+  const oldMe = await (await worker.fetch(makeRequest("/api/me", TOKEN_A), environment)).json();
+  assert.equal(oldMe.authType, "link");
+  assert.equal(oldMe.role, "admin");
+  const logout = await worker.fetch(makeRequest("/api/auth/logout", login.token, "POST", {}), environment);
+  assert.equal(logout.status, 200);
+  assert.equal((await worker.fetch(makeRequest("/api/me", login.token), environment)).status, 401);
+});
+
+test("email resend is throttled and a code allows only five guesses", async (context) => {
+  const db = database();
+  let code;
+  let sends = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, options) => { sends++; code = JSON.parse(options.body).text.match(/\b\d{6}\b/)[0]; return Response.json({ id: "sent" }); };
+  context.after(() => { globalThis.fetch = originalFetch; db.sqlite.close(); });
+  const environment = emailEnv(db);
+  const requestCode = () => worker.fetch(makeRequest("/api/auth/request-code", null, "POST", { email: "user@example.com" }), environment);
+  const challenge = await (await requestCode()).json();
+  assert.equal((await requestCode()).status, 429);
+  assert.equal(sends, 1);
+  const wrong = code === "000000" ? "000001" : "000000";
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const response = await worker.fetch(makeRequest("/api/auth/verify-code", null, "POST", { challengeId: challenge.challengeId, code: wrong }), environment);
+    assert.equal(response.status, 400);
+  }
+  assert.equal((await worker.fetch(makeRequest("/api/auth/verify-code", null, "POST", { challengeId: challenge.challengeId, code }), environment)).status, 400);
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM email_sessions").get().n, 0);
+});
+
+test("concurrent verification of one email code creates only one session", async (context) => {
+  const db = database();
+  let code;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, options) => { code = JSON.parse(options.body).text.match(/\b\d{6}\b/)[0]; return Response.json({ id: "sent" }); };
+  context.after(() => { globalThis.fetch = originalFetch; db.sqlite.close(); });
+  const environment = emailEnv(db);
+  const challenge = await (await worker.fetch(makeRequest("/api/auth/request-code", null, "POST", { email: "race@example.com" }), environment)).json();
+  const results = await Promise.all([0, 1].map(() => worker.fetch(makeRequest("/api/auth/verify-code", null, "POST", { challengeId: challenge.challengeId, code }), environment)));
+  assert.deepEqual(results.map((result) => result.status).sort(), [200, 400]);
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM email_sessions").get().n, 1);
+});
+
+test("repeat email sign-in uses the same account and expired sessions cannot authenticate", async (context) => {
+  const db = database();
+  let code;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, options) => { code = JSON.parse(options.body).text.match(/\b\d{6}\b/)[0]; return Response.json({ id: "sent" }); };
+  context.after(() => { globalThis.fetch = originalFetch; db.sqlite.close(); });
+  const environment = emailEnv(db);
+  async function signIn() {
+    db.sqlite.exec("UPDATE auth_rate_limits SET expires_at = 0");
+    const challenge = await (await worker.fetch(makeRequest("/api/auth/request-code", null, "POST", { email: "same@example.com" }), environment)).json();
+    return (await worker.fetch(makeRequest("/api/auth/verify-code", null, "POST", { challengeId: challenge.challengeId, code }), environment)).json();
+  }
+  const first = await signIn();
+  db.sqlite.prepare("UPDATE users SET display_name = 'Сохранённое имя' WHERE id = (SELECT user_id FROM email_accounts WHERE email = ?)").run("same@example.com");
+  const second = await signIn();
+  assert.notEqual(first.token, second.token);
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM users").get().n, 1);
+  const profile = await (await worker.fetch(makeRequest("/api/profile", second.token), environment)).json();
+  assert.equal(profile.displayName, "Сохранённое имя");
+  db.sqlite.exec("UPDATE email_sessions SET expires_at = 0");
+  assert.equal((await worker.fetch(makeRequest("/api/me", second.token), environment)).status, 401);
+});
+
+test("expired or unsent email codes cannot log in and disabled auth never sends", async (context) => {
+  const db = database();
+  let code;
+  const originalFetch = globalThis.fetch;
+  let failed = false;
+  globalThis.fetch = async (_url, options) => { code = JSON.parse(options.body).text.match(/\b\d{6}\b/)[0]; return failed ? Response.json({ error: "unavailable" }, { status: 503 }) : Response.json({ id: "sent" }); };
+  context.after(() => { globalThis.fetch = originalFetch; db.sqlite.close(); });
+  const environment = emailEnv(db);
+  const disabled = await worker.fetch(makeRequest("/api/auth/request-code", null, "POST", { email: "user@example.com" }), env(db));
+  assert.equal(disabled.status, 503);
+  const challenge = await (await worker.fetch(makeRequest("/api/auth/request-code", null, "POST", { email: "user@example.com" }), environment)).json();
+  db.sqlite.exec("UPDATE email_challenges SET expires_at = 0");
+  assert.equal((await worker.fetch(makeRequest("/api/auth/verify-code", null, "POST", { challengeId: challenge.challengeId, code }), environment)).status, 400);
+  failed = true;
+  db.sqlite.exec("UPDATE auth_rate_limits SET expires_at = 0");
+  const sendFailure = await worker.fetch(makeRequest("/api/auth/request-code", null, "POST", { email: "user@example.com" }), environment);
+  assert.equal(sendFailure.status, 502);
+  const pending = db.sqlite.prepare("SELECT id FROM email_challenges WHERE state = 'failed'").get();
+  assert.equal((await worker.fetch(makeRequest("/api/auth/verify-code", null, "POST", { challengeId: pending.id, code }), environment)).status, 400);
+});
 
 test("GPT-6 Astra uses router.cheap and can be selected as default", async (context) => {
   const db = database();
