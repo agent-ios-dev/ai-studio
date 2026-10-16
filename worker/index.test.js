@@ -286,15 +286,10 @@ test("OpenRouter models use their own IDs, thinking levels, and supported attach
   assert.deepEqual(requests[0].body.reasoning, { effort: "high" });
   assert.match(requests[0].body.messages.at(-1).content, /Файл «note\.txt»:.*Привет/s);
   const image = { name: "picture.png", type: "image/png", size: 3, data: Buffer.from("png").toString("base64") };
-  const qwen = await worker.fetch(makeRequest("/api/chat", TOKEN_A, "POST", { temporary: true, model: "qwen3.8-27b", thinking: "none", content: "Опиши", files: [image] }), environment);
-  assert.equal(qwen.status, 200);
-  assert.equal(requests[1].body.model, "qwen/qwen3.8-27b:free");
-  assert.deepEqual(requests[1].body.reasoning, { effort: "none" });
-  assert.equal(requests[1].body.messages.at(-1).content[1].image_url.url, "data:image/png;base64,cG5n");
   const rejected = await worker.fetch(makeRequest("/api/chat", TOKEN_A, "POST", { temporary: true, model: "nemotron-3-ultra", thinking: "low", content: "Опиши", files: [image] }), environment);
   assert.equal(rejected.status, 400);
-  assert.equal(requests.length, 2);
-  assert.equal(db.sqlite.prepare("SELECT count FROM usage WHERE user_id = 'router-user'").get().count, 2);
+  assert.equal(requests.length, 1);
+  assert.equal(db.sqlite.prepare("SELECT count FROM usage WHERE user_id = 'router-user'").get().count, 1);
 });
 
 test("upstream free-model rate limits are explained and do not spend daily quota", async (context) => {
@@ -303,7 +298,7 @@ test("upstream free-model rate limits are explained and do not spend daily quota
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => Response.json({ error: { message: "Provider returned error", metadata: { limit_source: "upstream_provider_shared_pool" } } }, { status: 429 });
   context.after(() => { globalThis.fetch = originalFetch; db.sqlite.close(); });
-  const response = await worker.fetch(makeRequest("/api/chat", TOKEN_A, "POST", { temporary: true, model: "qwen3.8-27b", thinking: "low", content: "Привет", files: [] }), env(db));
+  const response = await worker.fetch(makeRequest("/api/chat", TOKEN_A, "POST", { temporary: true, model: "nemotron-3-ultra", thinking: "low", content: "Привет", files: [] }), env(db));
   assert.equal(response.status, 502);
   assert.match((await response.json()).error, /Бесплатный сервер.*временно перегружен/);
   assert.equal(db.sqlite.prepare("SELECT count FROM usage WHERE user_id = 'rate-limited-user'").get().count, 0);
@@ -548,10 +543,10 @@ test("attachments persist for their owner and are removed with the chat", async 
   assert.equal(objects.size, 0);
 });
 
-test("removed Claude model cannot spend a request or become the default", async () => {
+test("removed models cannot spend a request or become the default", async () => {
   const db = database();
   setupUser(db, "user-a", TOKEN_A);
-  for (const model of ["claude-opus-5"]) {
+  for (const model of ["claude-opus-5", "qwen3.8-27b"]) {
     const response = await worker.fetch(makeRequest("/api/chat", TOKEN_A, "POST", { model, thinking: "low", content: "Привет", files: [] }), env(db));
     assert.equal(response.status, 400);
     assert.equal((await response.json()).error, "Неизвестная модель.");

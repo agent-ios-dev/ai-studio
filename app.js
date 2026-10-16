@@ -6,7 +6,6 @@ const MODELS = [
   { id: "gpt-6-astra", name: "GPT-6 Astra", provider: "OpenAI", description: "Сложные задачи и рассуждения" },
   { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash", provider: "Google", description: "Быстрые ответы" },
   { id: "nemotron-3-ultra", name: "Nemotron 3 Ultra", provider: "NVIDIA", description: "Сложные задачи и рассуждения" },
-  { id: "qwen3.8-27b", name: "Qwen3.8 27B", provider: "Alibaba Cloud", description: "Текст и изображения" },
 ];
 
 const $ = (id) => document.getElementById(id);
@@ -189,7 +188,7 @@ function renderModels() {
   const menu = $("modelMenu");
   menu.replaceChildren();
   if (!state.connected) { menu.classList.add("hidden"); $("modelTrigger").setAttribute("aria-expanded", "false"); return; }
-  for (const provider of ["OpenAI", "Google", "NVIDIA", "Alibaba Cloud"]) {
+  for (const provider of ["OpenAI", "Google", "NVIDIA"]) {
     const title = document.createElement("div");
     title.className = "model-group-label";
     title.textContent = provider;
@@ -220,7 +219,7 @@ function renderModels() {
 }
 function renderThinking() {
   const select = $("thinkingSelect");
-  const choices = state.model === "gpt-6-luna" ? [["none", "Без размышления"], ["low", "Быстро"], ["medium", "Стандартно"], ["high", "Глубоко"], ["xhigh", "Очень глубоко"], ["max", "Максимально"]] : state.model === "qwen3.8-27b" ? [["none", "Без размышления"], ["low", "Быстро"], ["medium", "Стандартно"], ["high", "Глубоко"]] : [["low", "Быстро"], ["medium", "Стандартно"], ["high", "Глубоко"]];
+  const choices = state.model === "gpt-6-luna" ? [["none", "Без размышления"], ["low", "Быстро"], ["medium", "Стандартно"], ["high", "Глубоко"], ["xhigh", "Очень глубоко"], ["max", "Максимально"]] : [["low", "Быстро"], ["medium", "Стандартно"], ["high", "Глубоко"]];
   select.replaceChildren();
   for (const [value, label] of choices) { const option = document.createElement("option"); option.value = value; option.textContent = label; select.append(option); }
   select.value = selectedThinking();
