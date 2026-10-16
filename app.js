@@ -47,6 +47,7 @@ function selectedModel() { return MODELS.find((model) => model.id === state.mode
 function modelAvailable(id) { return MODELS.some((model) => model.id === id && !model.disabled); }
 function selectedThinking() { return state.thinking[state.model] || "medium"; }
 function isSmartModel(model) { return model === "gpt-6-astra" || model === "gpt-6-sol"; }
+function supportsWebSearch(model) { return ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"].includes(model); }
 function apiUrl(path) { return `${state.apiUrl}${path}`; }
 function showToast(message) {
   const toast = $("toast");
@@ -227,10 +228,10 @@ function renderThinking() {
 }
 function renderWebSearch() {
   const button = $("webSearchToggle");
-  const available = state.connected && state.model === "gpt-6-luna" && modelAvailable(state.model);
+  const available = state.connected && supportsWebSearch(state.model) && modelAvailable(state.model);
   button.disabled = !available;
   button.setAttribute("aria-pressed", String(available && state.webSearch));
-  button.title = !state.connected ? "Войдите по личной ссылке" : available ? (state.webSearch ? "Выключить поиск в интернете" : "Включить поиск в интернете") : "Поиск пока недоступен для этой модели";
+  button.title = !state.connected ? "Войдите в аккаунт" : available ? (state.webSearch ? "Выключить поиск в интернете" : "Включить поиск в интернете") : "Поиск пока недоступен для этой модели";
 }
 function renderList() {
   const list = $("chatList");
@@ -507,7 +508,7 @@ async function sendMessage() {
       const previousUploads = temporary && !attached.length ? [...chat.messages].reverse().find((message) => message._uploads)?._uploads || [] : [];
       const modelAttachments = attached.length ? attached : previousUploads;
       const files = await Promise.all(modelAttachments.map(async (file) => ({ name: file.name, type: file.type || "application/octet-stream", size: file.size, data: await readFile(file) })));
-      const result = await api("/api/chat", { method: "POST", body: JSON.stringify({ chatId: temporary ? null : chat.id, temporary, history: temporary ? chat.messages.slice(0, -1).map(({ role, content }) => ({ role, content })) : undefined, model: chat.model, thinking: selectedThinking(), webSearch: chat.model === "gpt-6-luna" && state.webSearch, content, files }) });
+      const result = await api("/api/chat", { method: "POST", body: JSON.stringify({ chatId: temporary ? null : chat.id, temporary, history: temporary ? chat.messages.slice(0, -1).map(({ role, content }) => ({ role, content })) : undefined, model: chat.model, thinking: selectedThinking(), webSearch: supportsWebSearch(chat.model) && state.webSearch, content, files }) });
       answer = result.answer;
       citations = result.citations || [];
       state.remaining = result.remaining;
@@ -684,7 +685,7 @@ $("mobileMenu").addEventListener("click", () => $("appShell").classList.add("mob
 $("mobileScrim").addEventListener("click", closeMobile);
 $("modelTrigger").addEventListener("click", () => { if (!state.connected) { openSettings(); return; } const open = $("modelMenu").classList.toggle("hidden"); $("modelTrigger").setAttribute("aria-expanded", String(!open)); });
 $("thinkingSelect").addEventListener("change", () => { state.thinking[state.model] = $("thinkingSelect").value; localStorage.setItem("chat_thinking", JSON.stringify(state.thinking)); });
-$("webSearchToggle").addEventListener("click", () => { if (state.model !== "gpt-6-luna") return; state.webSearch = !state.webSearch; localStorage.setItem("chat_web_search", String(state.webSearch)); renderWebSearch(); });
+$("webSearchToggle").addEventListener("click", () => { if (!supportsWebSearch(state.model)) return; state.webSearch = !state.webSearch; localStorage.setItem("chat_web_search", String(state.webSearch)); renderWebSearch(); });
 document.addEventListener("click", (event) => { if (!event.target.closest(".model-control")) { $("modelMenu").classList.add("hidden"); $("modelTrigger").setAttribute("aria-expanded", "false"); } });
 $("settingsButton").addEventListener("click", openSettings);
 $("topSettings").addEventListener("click", openSettings);

@@ -582,7 +582,7 @@ test("restored Luna can continue old chats", async (context) => {
   assert.equal((await continued.json()).answer, "Продолжение");
 });
 
-test("web search is opt-in for Luna and preserves clickable citation data", async (context) => {
+test("web search is opt-in for every GPT model and preserves clickable citation data", async (context) => {
   const db = database();
   setupUser(db, "user-a", TOKEN_A);
   const seen = [];
@@ -609,4 +609,34 @@ test("web search is opt-in for Luna and preserves clickable citation data", asyn
   const plain = await worker.fetch(makeRequest("/api/chat", TOKEN_A, "POST", { temporary: true, model: "gpt-6-luna", thinking: "medium", webSearch: false, content: "Привет", files: [] }), env(db));
   assert.equal(plain.status, 200);
   assert.equal(seen[1].tools, undefined);
+  for (const model of ["gpt-6-sol", "gpt-6-astra"]) {
+    const response = await worker.fetch(makeRequest("/api/chat", TOKEN_A, "POST", { temporary: true, model, thinking: "low", webSearch: true, content: "Найди источник", files: [] }), env(db));
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.citations[0].url, "https://example.org/source");
+    assert.equal(result.remaining, 28);
+    assert.equal(seen.at(-1).model, model);
+    assert.deepEqual(seen.at(-1).tools, [{ type: "web_search" }]);
+    assert.equal(seen.at(-1).tool_choice, "required");
+  }
+});
+
+test("unconfirmed search responses and provider failures return the correct quota", async (context) => {
+  const db = database();
+  setupUser(db, "search-user", TOKEN_A);
+  const originalFetch = globalThis.fetch;
+  context.after(() => { globalThis.fetch = originalFetch; db.sqlite.close(); });
+  for (const model of ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"]) {
+    for (const failure of ["no-search", "no-sources", "provider-error"]) {
+      globalThis.fetch = async () => failure === "provider-error" ? Response.json({ error: { message: "Search unavailable" } }, { status: 503 }) : Response.json({ output: [
+        ...(failure === "no-sources" ? [{ type: "web_search_call", status: "completed" }] : []),
+        { type: "message", content: [{ type: "output_text", text: "Неподтверждённый ответ" }] },
+      ] });
+      const response = await worker.fetch(makeRequest("/api/chat", TOKEN_A, "POST", { temporary: true, model, thinking: "low", webSearch: true, content: "Найди", files: [] }), env(db));
+      assert.equal(response.status, 502);
+      const me = await (await worker.fetch(makeRequest("/api/me", TOKEN_A), env(db))).json();
+      assert.equal(me.remaining, 30);
+      assert.equal(me.smartRemaining, 5);
+    }
+  }
 });

@@ -6,6 +6,7 @@ const MAX_VOICE_BYTES = 3 * 1024 * 1024;
 const MOSCOW_DATE = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Moscow", year: "numeric", month: "2-digit", day: "2-digit" });
 const OPENROUTER_MODELS = { "nemotron-3-ultra": "nvidia/nemotron-3-ultra-550b-a55b:free", "qwen3.8-27b": "qwen/qwen3.8-27b:free" };
 const SMART_MODELS = new Set(["gpt-6-astra", "gpt-6-sol"]);
+const SEARCH_MODELS = new Set(["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"]);
 const SMART_DAILY_LIMIT = 5;
 const ALLOWED_MODELS = new Set(["gpt-6-luna", "gpt-6-sol", "gpt-6-astra", "gemini-3.8-flash", ...Object.keys(OPENROUTER_MODELS)]);
 const DEFAULT_MODEL = "gemini-3.8-flash";
@@ -227,6 +228,7 @@ async function callOpenAI(env, model, history, message, files, thinking, instruc
     }
   }
   if (!answer.trim()) throw new Error("Модель не вернула текстовый ответ. Попробуйте ещё раз.");
+  if (webSearch && (!(data.output || []).some((item) => item.type === "web_search_call" && item.status === "completed") || !citations.length)) throw new Error("Провайдер не подтвердил поиск с источниками для этой модели. Попробуйте другую GPT-модель или выключите поиск.");
   return { answer, citations: citations.slice(0, 20) };
 }
 function geminiParts(message, files) {
@@ -417,7 +419,7 @@ async function handleApi(request, env) {
     if (!ALLOWED_MODELS.has(model)) return safeError("Неизвестная модель.");
     if (!modelEnabled(env, model)) return safeError("Модель временно недоступна.", 503);
     if (!THINKING[model].has(thinking)) return safeError("Этот уровень размышления модель не поддерживает.");
-    if (webSearch && model !== "gpt-6-luna") return safeError("Поиск пока доступен только для GPT-6 Luna.");
+    if (webSearch && !SEARCH_MODELS.has(model)) return safeError("Поиск доступен только для GPT-6 Luna, Sol и Astra.");
     if (content.length > 12_000 || (!content && !files.length)) return safeError("Напишите сообщение или прикрепите файл.");
     try { validateFiles(files, model); } catch (error) { return safeError(error.message); }
     const requestedId = !temporary && typeof body.chatId === "string" && /^[A-Za-z0-9-]{1,64}$/.test(body.chatId) ? body.chatId : null;
