@@ -137,3 +137,21 @@
 @media(prefers-reduced-motion:reduce){.settings-switch-thumb,.settings-switch-track{transition:none}}
 @media(prefers-reduced-transparency:reduce){.settings-switch-thumb{background:#fff}}
 @media(forced-colors:active){.settings-page-header{background:Canvas}.settings-switch-track{border:1px solid ButtonText;background:Canvas}.settings-switch input:checked+.settings-switch-track{background:Highlight}.settings-switch-thumb{background:ButtonText}.settings-page-content .settings-danger{background:ButtonFace;color:ButtonText;border:1px solid ButtonText}}
+
+@media(max-width:760px){
+  .settings-page-scroll{padding:96px 18px max(28px,env(safe-area-inset-bottom))}
+  .settings-page-content{width:100%;max-width:none;font-size:17px}
+  .settings-page-header h2{font-size:22px}
+  .settings-model-label{font-size:17px;margin-bottom:14px}
+  .settings-page-content .text-field{height:42px;min-height:42px;font-size:16px;padding:8px 13px;border-radius:22px}
+  .settings-section-title{font-size:18px;line-height:24px;margin:18px 0 10px}
+  .settings-small-label{font-size:15px;line-height:20px;margin-bottom:6px}
+  .settings-page-content #displayNameInput{margin-bottom:14px}
+  .settings-page-content .about-field{height:128px;min-height:128px;padding:12px 13px;margin-bottom:22px}
+  .settings-memory-row{min-height:34px;margin-bottom:22px}
+  .settings-switch{width:68px;height:32px;margin-right:0}
+  .settings-switch-thumb{width:40px;height:28px}
+  .settings-switch input:checked+.settings-switch-track .settings-switch-thumb{transform:translateX(24px)}
+  .settings-page-content .settings-danger{height:48px;font-size:17px;margin-bottom:12px}
+  .settings-save-status{font-size:12px;margin-top:16px}
+}
