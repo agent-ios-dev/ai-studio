@@ -100,3 +100,40 @@
 .composer .attached-file button{color:#404040}
 .composer-area .disclaimer{color:#454545}
 @media(forced-colors:active){.composer textarea,.composer textarea::placeholder,.composer .attach-button,.composer .voice-button,.composer .thinking-picker,.composer .thinking-picker select,.composer .web-search-toggle,.composer-area .disclaimer{color:CanvasText}.composer .send-button{background:ButtonFace;color:ButtonText}}
+
+/* Settings page follows the supplied 320px and 884px Figma frames. */
+#settingsDialog.settings-page{position:fixed;inset:0;width:100%;max-width:none;height:100dvh;max-height:100dvh;margin:0;padding:0;border:0;border-radius:0;background:#fff;box-shadow:none;color:#080808;overflow:hidden}
+.settings-page-header{position:absolute;inset:0 0 auto;height:81px;margin:0;padding:0;display:flex;justify-content:center;align-items:flex-start;background:linear-gradient(180deg,#0003,transparent);z-index:2;pointer-events:none}
+.settings-page-header h2{font-size:20px;font-weight:400;line-height:40px;margin:13px 56px 0;pointer-events:auto}
+.settings-page-header .settings-close{position:absolute;right:13px;top:13px;width:40px;height:40px;border-radius:50%;background:transparent;color:#000;pointer-events:auto}
+.settings-close svg{width:30px;height:30px;stroke-width:2.2}
+.settings-page-scroll{height:100%;overflow-y:auto;overscroll-behavior:contain;padding:92px 12px max(35px,env(safe-area-inset-bottom))}
+.settings-page-content{width:296px;max-width:100%;margin:0 auto;font-size:16px}
+.settings-model-label{display:block;margin-bottom:14px;line-height:19px}
+.settings-page-content .text-field{display:block;background:#d9d9d9;border:0;border-radius:18px;height:28px;min-height:28px;padding:3px 10px;font-size:13px;color:#090909;outline-offset:2px}
+.settings-page-content .text-field:focus-visible{outline:2px solid #6d8cb3}
+.settings-page-content select.text-field{padding-right:28px;cursor:pointer}
+.settings-section-title{font-size:16px;font-weight:400;line-height:20px;margin:8px 0 5px}
+.settings-small-label{display:block;font-size:14px;line-height:18px;margin:0 9px 3px}
+.settings-page-content #displayNameInput{margin-bottom:7px}
+.settings-page-content .about-field{height:100px;resize:vertical;min-height:100px;max-height:220px;padding:9px 10px;line-height:1.5;margin-bottom:15px}
+.settings-memory-row{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:29px;margin-bottom:15px;cursor:pointer;user-select:none}
+.settings-switch{position:relative;display:block;width:64px;height:28px;flex:none;margin-right:10px}
+.settings-switch input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer;z-index:3}
+.settings-switch-track{display:block;position:absolute;inset:0;border-radius:30px;background:#b8b8bd;transition:background .22s}
+.settings-switch input:checked+.settings-switch-track{background:#2bc759}
+.settings-switch-thumb{display:block;position:absolute;top:2px;left:2px;width:38px;height:24px;border-radius:20px;transform:translateX(0);transition:transform .25s cubic-bezier(.2,.8,.2,1);box-shadow:0 1px 4px #0003}
+.settings-switch input:checked+.settings-switch-track .settings-switch-thumb{transform:translateX(22px)}
+.settings-switch input:active+.settings-switch-track .settings-switch-thumb{scale:1.08 1.04}
+.settings-switch input:focus-visible+.settings-switch-track{outline:2px solid #315b94;outline-offset:4px}
+.settings-page-content .settings-danger{display:block;width:100%;height:40px;border-radius:28px;background:#ff0808;color:#fff;padding:0 12px;margin:0 0 10px;font-size:16px;text-align:center}
+.settings-page-content .settings-danger:hover{background:#df0000}
+.settings-save-status{font-size:11px;color:#606060;line-height:1.45;text-align:center;margin:12px 0 0;min-height:16px}
+.settings-save-status.error{color:#a32020}
+.settings-extra{margin-top:16px;font-size:12px;color:#555}
+.settings-extra summary{cursor:pointer;margin-bottom:10px}
+.settings-extra .text-field{margin-top:8px}
+@media(min-width:761px){.settings-page-content{width:296px}.settings-page-scroll{padding-top:92px}}
+@media(prefers-reduced-motion:reduce){.settings-switch-thumb,.settings-switch-track{transition:none}}
+@media(prefers-reduced-transparency:reduce){.settings-switch-thumb{background:#fff}}
+@media(forced-colors:active){.settings-page-header{background:Canvas}.settings-switch-track{border:1px solid ButtonText;background:Canvas}.settings-switch input:checked+.settings-switch-track{background:Highlight}.settings-switch-thumb{background:ButtonText}.settings-page-content .settings-danger{background:ButtonFace;color:ButtonText;border:1px solid ButtonText}}

@@ -678,6 +678,8 @@ $("legacyLoginForm").addEventListener("submit", async (event) => {
 $("logoutButton").addEventListener("click", async () => {
   if (state.busy || voiceProcessing || voiceRecorder?.state === "recording") { showToast("Дождитесь завершения запроса."); return; }
   try {
+    if (settingsSaveTimer) queueSettingsSave();
+    await settingsSaveChain;
     if (state.authType !== "link") await api("/api/auth/logout", { method: "POST", body: "{}" });
     localStorage.removeItem("chat_access_token");
     state.token = "";
@@ -718,7 +720,51 @@ $("webSearchToggle").addEventListener("click", () => { if (!supportsWebSearch(st
 document.addEventListener("click", (event) => { if (!event.target.closest(".model-control")) { $("modelMenu").classList.add("hidden"); $("modelTrigger").setAttribute("aria-expanded", "false"); } });
 $("settingsButton").addEventListener("click", openSettings);
 $("topNewChat").addEventListener("click", newChat);
-function openSettings() { if (!state.connected) { openAuth(); return; } $("defaultModelSelect").value = state.defaultModel; $("displayNameInput").value = state.profile.displayName; $("aboutTextInput").value = state.profile.aboutText; $("memoryEnabledInput").checked = state.profile.memoryEnabled; $("accessCodeInput").value = ""; $("accessCodeInput").placeholder = state.token ? "Личная ссылка уже сохранена" : "Вставьте личную ссылку"; $("settingsDialog").showModal(); closeMobile(); }
+let settingsSaveTimer;
+let settingsSaveChain = Promise.resolve();
+let settingsLastQueued = "";
+let settingsSaveVersion = 0;
+function settingsSnapshot() {
+  return { displayName: $("displayNameInput").value.trim(), aboutText: $("aboutTextInput").value.trim(), defaultModel: $("defaultModelSelect").value, memoryEnabled: $("memoryEnabledInput").checked };
+}
+function settingsStatus(text, error = false) {
+  $("settingsSaveStatus").textContent = text;
+  $("settingsSaveStatus").classList.toggle("error", error);
+}
+function queueSettingsSave() {
+  clearTimeout(settingsSaveTimer);
+  settingsSaveTimer = null;
+  if (!state.connected) return;
+  const profile = settingsSnapshot();
+  const serialized = JSON.stringify(profile);
+  if (serialized === settingsLastQueued) return;
+  settingsLastQueued = serialized;
+  const version = ++settingsSaveVersion;
+  const token = state.token;
+  settingsStatus("Сохраняем…");
+  settingsSaveChain = settingsSaveChain.then(async () => {
+    if (state.token !== token) return;
+    try {
+      const result = await api("/api/profile", { method: "PUT", body: JSON.stringify(profile) });
+      if (state.token !== token) return;
+      state.profile = result;
+      state.defaultModel = result.defaultModel;
+      localStorage.setItem("chat_default_model", state.defaultModel);
+      if (!currentChat()) state.model = state.defaultModel;
+      renderAll();
+      if (version === settingsSaveVersion) settingsStatus("Сохранено");
+    } catch (error) {
+      if (version === settingsSaveVersion) { settingsLastQueued = ""; settingsStatus("Не удалось сохранить. Измените поле, чтобы повторить.", true); }
+      showToast(error.message);
+    }
+  });
+}
+for (const field of ["displayNameInput", "aboutTextInput"]) {
+  $(field).addEventListener("input", () => { clearTimeout(settingsSaveTimer); settingsStatus("Сохраняем…"); settingsSaveTimer = setTimeout(queueSettingsSave, 650); });
+}
+for (const field of ["displayNameInput", "aboutTextInput", "defaultModelSelect", "memoryEnabledInput"]) $(field).addEventListener("change", queueSettingsSave);
+$("settingsDialog").addEventListener("close", () => { if (settingsSaveTimer) queueSettingsSave(); });
+function openSettings() { if (!state.connected) { openAuth(); return; } $("defaultModelSelect").value = state.defaultModel; $("displayNameInput").value = state.profile.displayName; $("aboutTextInput").value = state.profile.aboutText; $("memoryEnabledInput").checked = state.profile.memoryEnabled; $("accessCodeInput").value = ""; $("accessCodeInput").placeholder = state.token ? "Личная ссылка уже сохранена" : "Вставьте личную ссылку"; settingsLastQueued = JSON.stringify(settingsSnapshot()); settingsStatus("Изменения сохраняются автоматически"); $("settingsDialog").showModal(); closeMobile(); }
 $("saveSettings").addEventListener("click", async () => {
   if (state.busy || voiceProcessing || voiceRecorder?.state === "recording") { showToast("Дождитесь завершения запроса."); return; }
   const personalization = { displayName: $("displayNameInput").value.trim(), aboutText: $("aboutTextInput").value.trim(), defaultModel: $("defaultModelSelect").value, memoryEnabled: $("memoryEnabledInput").checked };

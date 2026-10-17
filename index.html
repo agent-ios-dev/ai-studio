@@ -125,31 +125,29 @@
       </div>
     </dialog>
 
-    <dialog id="settingsDialog" class="settings-dialog">
-      <form method="dialog" class="dialog-head"><h2>Настройки</h2><button class="icon-button" aria-label="Закрыть"><svg><use href="#i-close"/></svg></button></form>
-      <div class="dialog-body">
-        <div class="setting-block"><div><strong>Подключение</strong><p id="connectionDescription">Откройте личную ссылку доступа.</p></div><span class="status-dot" id="connectionDot"></span></div>
-        <label class="field-label" for="defaultModelSelect">Модель по умолчанию для новых чатов</label>
-        <select class="text-field" id="defaultModelSelect"><option value="gpt-6-luna">GPT-6 Luna</option><option value="gpt-6-sol">GPT-6 Sol</option><option value="gpt-6-astra">GPT-6 Astra</option><option value="gemini-3.8-flash">Gemini 3.8 Flash</option><option value="nemotron-3-ultra">Nemotron 3 Ultra</option></select>
-        <div class="dialog-divider"></div>
-        <h3 class="section-heading">Персонализация</h3>
-        <label class="field-label" for="displayNameInput">Ваше имя</label>
-        <input class="text-field" id="displayNameInput" type="text" maxlength="80" placeholder="Как к вам обращаться" />
-        <label class="field-label" for="aboutTextInput">О себе</label>
-        <textarea class="text-field about-field" id="aboutTextInput" maxlength="1000" placeholder="Что модели стоит знать о вас"></textarea>
-        <label class="check-row"><input id="memoryEnabledInput" type="checkbox" checked /> Использовать память из других чатов</label>
-        <p class="field-note">Модель сможет учитывать подходящие фрагменты сохранённых диалогов. Временные чаты в память не входят.</p>
-        <div class="dialog-divider"></div>
-        <div id="legacyAccessSection">
-        <label class="field-label" for="accessCodeInput">Личная ссылка доступа</label>
-        <input class="text-field" id="accessCodeInput" type="password" placeholder="Вставьте личную ссылку или её код" autocomplete="off" />
-        <p class="field-note">Вставьте ссылку один раз. Браузер запомнит доступ к вашим чатам и лимиту.</p>
+    <dialog id="settingsDialog" class="settings-dialog settings-page" aria-labelledby="settingsTitle">
+      <form method="dialog" class="settings-page-header"><h2 id="settingsTitle">Настройки</h2><button class="icon-button settings-close" aria-label="Закрыть настройки"><svg><use href="#i-close"/></svg></button></form>
+      <div class="settings-page-scroll">
+        <div class="settings-page-content">
+          <label class="settings-model-label" for="defaultModelSelect">Модель по умолчанию</label>
+          <select class="text-field" id="defaultModelSelect"><option value="gpt-6-luna">GPT-6 Luna</option><option value="gpt-6-sol">GPT-6 Sol</option><option value="gpt-6-astra">GPT-6 Astra</option><option value="gemini-3.8-flash">Gemini 3.8 Flash</option><option value="nemotron-3-ultra">Nemotron 3 Ultra</option></select>
+          <h3 class="settings-section-title">Персонализация</h3>
+          <label class="settings-small-label" for="displayNameInput">Ваше имя</label>
+          <input class="text-field" id="displayNameInput" type="text" maxlength="80" autocomplete="given-name" placeholder="Имя" />
+          <label class="settings-small-label" for="aboutTextInput">О вас</label>
+          <textarea class="text-field about-field" id="aboutTextInput" maxlength="1000" aria-describedby="settingsSaveStatus"></textarea>
+          <label class="settings-memory-row" for="memoryEnabledInput"><span>Включить память</span><span class="settings-switch"><input id="memoryEnabledInput" type="checkbox" role="switch" checked /><span class="settings-switch-track" aria-hidden="true"><span class="settings-switch-thumb"></span></span></span></label>
+          <button class="danger-button settings-danger" id="clearChats" type="button">Удалить все чаты</button>
+          <button class="danger-button settings-danger" id="logoutButton" type="button">Выйти из аккаунта</button>
+          <p id="settingsSaveStatus" class="settings-save-status" role="status" aria-live="polite">Изменения сохраняются автоматически</p>
+          <a class="admin-link hidden" id="adminLink" href="./admin.html">Открыть админку</a>
+          <details class="settings-extra" id="legacyAccessSection"><summary>Личная ссылка доступа</summary>
+            <p class="field-note" id="connectionDescription">Откройте личную ссылку доступа.</p><span class="status-dot hidden" id="connectionDot"></span>
+            <label class="sr-only" for="accessCodeInput">Личная ссылка доступа</label>
+            <input class="text-field" id="accessCodeInput" type="password" placeholder="Вставьте личную ссылку" autocomplete="off" />
+            <button class="primary-button" id="saveSettings" type="button">Подключить ссылку</button>
+          </details>
         </div>
-        <button class="primary-button" id="saveSettings" type="button">Сохранить</button>
-        <a class="admin-link hidden" id="adminLink" href="./admin.html">Открыть админку</a>
-        <div class="dialog-divider"></div>
-        <button class="danger-button" id="clearChats" type="button"><svg><use href="#i-trash"/></svg> Удалить все чаты</button>
-        <button class="danger-button" id="logoutButton" type="button">Выйти из аккаунта</button>
       </div>
     </dialog>
 
