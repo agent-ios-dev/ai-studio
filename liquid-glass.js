@@ -14,7 +14,13 @@ for (const surface of surfaces) {
   glass.setAttribute("glass-thickness", "100");
   glass.setAttribute("refraction-scale", "1.5");
   glass.setAttribute("specular-opacity", "0.3");
-  glass.setAttribute("tint", surface.matches(".composer") ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.3)");
+  const updateTint = () => {
+    const dark = document.documentElement.dataset.theme === "dark";
+    const thumb = surface.matches(".settings-switch-thumb");
+    glass.setAttribute("tint", dark ? (thumb ? "rgba(235,238,245,0.55)" : surface.matches(".composer") ? "rgba(30,32,38,0.85)" : "rgba(35,38,46,0.72)") : surface.matches(".composer") ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.3)");
+  };
+  updateTint();
+  document.addEventListener("aistudio:themechange", updateTint);
   // A hidden menu/dialog will get its first map only when opened.
   glass.setAttribute("width", "1");
   glass.setAttribute("height", "1");

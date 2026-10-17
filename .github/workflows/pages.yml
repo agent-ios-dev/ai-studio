@@ -28,13 +28,16 @@ jobs:
           CHAT_API_URL: ${{ vars.CHAT_API_URL }}
         run: |
           mkdir _site
-          cp index.html admin.html styles.css admin.css app.js markdown.js liquid-glass.js admin.js favicon.svg favicon.ico apple-touch-icon.png manifest.webmanifest _site/
+          cp index.html admin.html styles.css admin.css theme.js theme.css app.js markdown.js liquid-glass.js admin.js favicon.svg favicon.ico apple-touch-icon.png manifest.webmanifest _site/
           cp -r vendor _site/vendor
           cp -r assets _site/assets
           python - <<'PY'
           import json, os
           from pathlib import Path
           Path('_site/config.js').write_text('window.CHAT_API_URL = ' + json.dumps(os.environ['CHAT_API_URL']) + ';\n', encoding='utf-8')
+          for name in ('index.html', 'admin.html'):
+            themed_page = Path('_site') / name
+            themed_page.write_text(themed_page.read_text(encoding='utf-8').replace('./theme.js"', './theme.js?v=' + os.environ['GITHUB_SHA'] + '"').replace('./theme.css"', './theme.css?v=' + os.environ['GITHUB_SHA'] + '"'), encoding='utf-8')
           page = Path('_site/index.html')
           page.write_text(page.read_text(encoding='utf-8').replace('./app.js"', './app.js?v=' + os.environ['GITHUB_SHA'] + '"').replace('./styles.css"', './styles.css?v=' + os.environ['GITHUB_SHA'] + '"'), encoding='utf-8')
           app = Path('_site/app.js')
