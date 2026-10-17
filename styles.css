@@ -63,7 +63,7 @@
 /* Conversation scrolls behind the floating glass controls. */
 .main-panel{position:relative}
 .topbar{position:absolute;top:0;left:0;right:0;pointer-events:none}
-.topbar::before{display:block;background:linear-gradient(180deg,rgba(0,0,0,.2),rgba(255,255,255,0))}
+.topbar::before{display:block;background:linear-gradient(180deg,rgba(0,0,0,.4),rgba(255,255,255,0))}
 .topbar>button,.topbar .model-control{pointer-events:auto}
 .conversation{padding-top:76px;scroll-padding-top:76px}
 .topbar .mobile-menu.liquid-surface,.topbar .top-new-chat.liquid-surface{background:transparent;border:1px solid #ffffffc9;box-shadow:0 4px 16px #263b5724,inset 0 1px 1px #fff,inset 0 -1px 2px #748ba838}
@@ -81,6 +81,6 @@
 @media(max-width:760px){.composer-area{padding-bottom:max(10px,env(safe-area-inset-bottom))}}
 
 /* Mirror the header fade beneath the composer for readable drafts. */
-.composer-area::before{content:"";position:absolute;inset:0;z-index:0;pointer-events:none;background:linear-gradient(0deg,rgba(0,0,0,.2),rgba(255,255,255,0))}
+.composer-area::before{content:"";position:absolute;inset:0;z-index:0;pointer-events:none;background:linear-gradient(0deg,rgba(0,0,0,.4),rgba(255,255,255,0))}
 .composer-area .composer-wrap{position:relative;z-index:1}
 @media(forced-colors:active){.composer-area::before{display:none}}
