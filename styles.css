@@ -16,3 +16,25 @@
 .auth-entry-button{border:0;border-radius:20px;padding:8px 17px;background:#202020;color:#fff;font-size:12px;font-weight:600;margin-left:8px}.auth-entry-button:hover{background:#444}.auth-description{font-size:13px;line-height:1.6;color:#666;margin:0 0 14px}.auth-error{color:#a43731;background:#fff1f0;border:1px solid #f3d6d2;border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.5}.auth-code-input{font-size:22px;letter-spacing:.35em;height:48px;text-align:center}.auth-secondary-actions{display:flex;justify-content:space-between;gap:8px;margin-top:13px}.auth-secondary-actions button{border:0;background:transparent;color:#666;padding:4px 0;font-size:11px}.auth-secondary-actions button:disabled{opacity:.5;cursor:default}.legacy-login{border-top:1px solid #eee;margin-top:24px;padding-top:17px;font-size:12px;color:#777}.legacy-login summary{cursor:pointer}.legacy-login .primary-button{margin-top:14px}.profile-copy{min-width:0}.profile-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 .telegram-login-button{background:#229ed9;color:#fff}.telegram-login-button:hover{background:#178ac0}.telegram-login-button:disabled{opacity:.55;cursor:default}
+
+/* Liquid Web: SVG refraction maps and specular rims, with native blur fallback. */
+.main-panel{background:radial-gradient(ellipse at 90% 100%,#dce9f859,transparent 43%),radial-gradient(ellipse at 6% 95%,#e7def84a,transparent 37%),#fff}
+.composer-area{background:transparent;padding-top:12px}
+.liquid-surface{position:relative;background:transparent;border-color:#ffffffc9;box-shadow:0 12px 40px #25355112,0 2px 8px #25355108,inset 0 0 0 1px #ffffff80}
+.liquid-surface>.liquid-surface-optics{position:absolute;inset:0;display:block;pointer-events:none;border-radius:inherit;z-index:0;overflow:hidden}
+.liquid-surface>:not(.liquid-surface-optics):not(.sr-only){position:relative;z-index:1}
+.composer{border-radius:26px;background:#ffffff18}
+.composer:focus-within{border-color:#b6c9e1;box-shadow:0 12px 40px #25355114,0 0 0 3px #d3e3f029}
+.model-menu.liquid-surface{position:absolute;border-radius:20px;box-shadow:0 16px 48px #25355120,0 2px 8px #2535510a}
+.model-option:hover,.model-option.selected{background:#d8e2ed45}
+.settings-dialog.liquid-surface,.search-dialog.liquid-surface{position:fixed;border-radius:24px;box-shadow:0 24px 90px #1c2b4533,inset 0 0 0 1px #ffffffa6}
+.settings-dialog::backdrop,.search-dialog::backdrop{background:#34435940}
+.liquid-surface .text-field{background:#ffffffb8;border-color:#b9c5d15e;border-radius:12px}
+.liquid-surface .text-field:focus{border-color:#8aa7c8;box-shadow:0 0 0 3px #aac7e529}
+.liquid-surface .field-note{color:#6e7783}
+.liquid-surface .dialog-head,.liquid-surface .search-head{border-bottom-color:#b9c5d13b}
+.search-head input{background:transparent}
+.liquid-surface .dialog-divider{background:#b9c5d13b}
+.liquid-surface .attached-file{background:#ffffffe0}
+@media(prefers-reduced-transparency:reduce){.liquid-surface{background:#fafbfd}.liquid-surface>.liquid-surface-optics{display:none}}
+@media(forced-colors:active){.liquid-surface{background:Canvas;border:1px solid CanvasText}.liquid-surface>.liquid-surface-optics{display:none}}

@@ -1,3 +1,4 @@
+import "./liquid-glass.js";
 import { renderMarkdown } from "./markdown.js";
 
 const MODELS = [
