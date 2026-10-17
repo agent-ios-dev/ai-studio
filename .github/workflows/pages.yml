@@ -28,7 +28,7 @@ jobs:
           CHAT_API_URL: ${{ vars.CHAT_API_URL }}
         run: |
           mkdir _site
-          cp index.html admin.html styles.css admin.css app.js markdown.js liquid-glass.js admin.js favicon.svg _site/
+          cp index.html admin.html styles.css admin.css app.js markdown.js liquid-glass.js admin.js favicon.svg favicon.ico apple-touch-icon.png manifest.webmanifest _site/
           cp -r vendor _site/vendor
           cp -r assets _site/assets
           python - <<'PY'

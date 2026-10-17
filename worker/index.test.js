@@ -67,7 +67,7 @@ function makeRequest(path, token, method = "GET", body = null, extraHeaders = {}
 const TOKEN_A = "a".repeat(43);
 const TOKEN_B = "b".repeat(43);
 const env = (db) => ({ DB: db, ALLOWED_ORIGIN: "https://site.example.test", ROUTER_CHEAP_API_KEY: "test-router-cheap", GEMINI_API_KEY: "test-gemini", OPENROUTER_API_KEY: "test-openrouter" });
-const emailEnv = (db) => ({ ...env(db), EMAIL_AUTH_ENABLED: "true", EMAIL_AUTH_SECRET: "test-hmac-secret", RESEND_API_KEY: "test-resend", RESEND_FROM: "AI Studio <login@example.test>" });
+const emailEnv = (db) => ({ ...env(db), EMAIL_AUTH_ENABLED: "true", EMAIL_AUTH_SECRET: "test-hmac-secret", RESEND_API_KEY: "test-resend", RESEND_FROM: "Ai Studio <login@example.test>" });
 
 test("pinned chats persist, sort first, remain private and can be unpinned", async context => {
   const db = database();

@@ -96,9 +96,9 @@ async function handleEmailAuth(request, env) {
         method: "POST",
         headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json", "Idempotency-Key": `login-${challengeId}` },
         body: JSON.stringify({
-          from: env.RESEND_FROM, to: [email], subject: "Ваш код входа в AI Studio",
-          text: `Код входа в AI Studio: ${code}\n\nКод действует 10 минут и подходит только для одного входа. Никому его не сообщайте. Если вы не запрашивали код, проигнорируйте письмо.`,
-          html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:32px auto;color:#222"><h2>Вход в AI Studio</h2><p>Ваш одноразовый код:</p><div style="font-size:32px;font-weight:bold;letter-spacing:8px;padding:20px;background:#f5f5f5;border-radius:12px">${code}</div><p>Код действует 10 минут. Никому его не сообщайте.</p><p style="color:#777;font-size:12px">Если вы не запрашивали вход, просто проигнорируйте это письмо.</p></div>`,
+          from: env.RESEND_FROM, to: [email], subject: "Ваш код входа в Ai Studio",
+          text: `Код входа в Ai Studio: ${code}\n\nКод действует 10 минут и подходит только для одного входа. Никому его не сообщайте. Если вы не запрашивали код, проигнорируйте письмо.`,
+          html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:32px auto;color:#222"><h2>Вход в Ai Studio</h2><p>Ваш одноразовый код:</p><div style="font-size:32px;font-weight:bold;letter-spacing:8px;padding:20px;background:#f5f5f5;border-radius:12px">${code}</div><p>Код действует 10 минут. Никому его не сообщайте.</p><p style="color:#777;font-size:12px">Если вы не запрашивали вход, просто проигнорируйте это письмо.</p></div>`,
         }),
         signal: AbortSignal.timeout(15_000),
       });

@@ -7,7 +7,7 @@ ALLOWED_ORIGIN = "https://YOUR_USERNAME.github.io"
 EMAIL_AUTH_ENABLED = "false"
 TELEGRAM_AUTH_ENABLED = "false"
 TELEGRAM_CLIENT_ID = ""
-RESEND_FROM = "AI Studio <login@YOUR_VERIFIED_DOMAIN>"
+RESEND_FROM = "Ai Studio <login@YOUR_VERIFIED_DOMAIN>"
 
 [[d1_databases]]
 binding = "DB"

@@ -4,9 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#ffffff" />
-    <meta name="description" content="Удобный чат с несколькими ИИ-моделями." />
-    <title>Чат с ИИ</title>
-    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <meta name="description" content="Ai Studio — удобный чат с несколькими ИИ-моделями." />
+    <meta name="application-name" content="Ai Studio" />
+    <meta name="apple-mobile-web-app-title" content="Ai Studio" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta property="og:title" content="Ai Studio" />
+    <meta property="og:site_name" content="Ai Studio" />
+    <meta property="og:image" content="https://ai-studio-gpt.eu.cc/assets/brand/icon-512.png" />
+    <title>Ai Studio</title>
+    <link rel="icon" href="./favicon.svg?v=ai-studio-1" type="image/svg+xml" />
+    <link rel="icon" href="./assets/brand/icon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png?v=ai-studio-1" sizes="180x180" />
+    <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -76,7 +86,7 @@
 
         <section class="conversation" id="conversation" aria-live="polite">
           <div class="welcome" id="welcome">
-            <div class="welcome-mark" aria-hidden="true"><svg><use href="#i-spark"/></svg></div>
+            <div class="welcome-mark"><img src="./assets/brand/icon-192.png" width="40" height="40" alt="Ai Studio" /></div>
             <h1>С чего начнём?</h1>
             <p id="welcomeText">Выберите модель и напишите сообщение.</p>
             <div class="suggestions" id="suggestions">
@@ -108,7 +118,7 @@
     </div>
 
     <dialog id="authDialog" class="settings-dialog" aria-labelledby="authTitle">
-      <form method="dialog" class="dialog-head"><h2 id="authTitle">Войти в AI Studio</h2><button class="icon-button" aria-label="Закрыть"><svg><use href="#i-close"/></svg></button></form>
+      <form method="dialog" class="dialog-head"><h2 id="authTitle">Войти в Ai Studio</h2><button class="icon-button" aria-label="Закрыть"><svg><use href="#i-close"/></svg></button></form>
       <div class="dialog-body">
         <p class="auth-description">Войдите через Telegram. При первом входе создаётся аккаунт, в котором сохраняются чаты и лимиты.</p>
         <p class="auth-error hidden" id="authError" role="alert"></p>
