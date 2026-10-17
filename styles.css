@@ -84,3 +84,19 @@
 .composer-area::before{content:"";position:absolute;inset:0;z-index:0;pointer-events:none;background:linear-gradient(0deg,rgba(0,0,0,.4),rgba(255,255,255,0))}
 .composer-area .composer-wrap{position:relative;z-index:1}
 @media(forced-colors:active){.composer-area::before{display:none}}
+
+/* Opaque foreground controls stay readable over the refracted conversation. */
+.composer textarea{color:#111}
+.composer textarea::placeholder{color:#454545;opacity:1}
+.composer .attach-button,.composer .voice-button,.composer .thinking-picker,.composer .thinking-picker select,.composer .web-search-toggle{color:#202020;opacity:1}
+.composer .thinking-picker select{font-weight:550}
+.composer .web-search-toggle[aria-pressed="true"]{color:#174e99;background:#e2ecfa}
+.composer .send-button{background:#565656;color:#fff;opacity:1}
+.composer .send-button.ready{background:#171717}
+.composer .attach-button:disabled,.composer .voice-button:disabled,.composer .web-search-toggle:disabled,.composer .thinking-picker select:disabled{color:#606060;opacity:1}
+.composer .send-button:disabled{background:#626262;opacity:1}
+.composer .voice-button.recording{background:#c72828;color:#fff}
+.composer .attached-file{color:#222}
+.composer .attached-file button{color:#404040}
+.composer-area .disclaimer{color:#454545}
+@media(forced-colors:active){.composer textarea,.composer textarea::placeholder,.composer .attach-button,.composer .voice-button,.composer .thinking-picker,.composer .thinking-picker select,.composer .web-search-toggle,.composer-area .disclaimer{color:CanvasText}.composer .send-button{background:ButtonFace;color:ButtonText}}
