@@ -18,12 +18,13 @@
 .telegram-login-button{background:#229ed9;color:#fff}.telegram-login-button:hover{background:#178ac0}.telegram-login-button:disabled{opacity:.55;cursor:default}
 
 /* Liquid Web: SVG refraction maps and specular rims, with native blur fallback. */
-.main-panel{background:radial-gradient(ellipse at 90% 100%,#dce9f859,transparent 43%),radial-gradient(ellipse at 6% 95%,#e7def84a,transparent 37%),#fff}
+.main-panel{background:radial-gradient(ellipse at 94% 108%,#8db9eb80,transparent 44%),radial-gradient(ellipse at 5% 100%,#bea3e775,transparent 36%),radial-gradient(ellipse at 52% 115%,#b4e3e559,transparent 40%),#fff}
 .composer-area{background:transparent;padding-top:12px}
-.liquid-surface{position:relative;background:transparent;border-color:#ffffffc9;box-shadow:0 12px 40px #25355112,0 2px 8px #25355108,inset 0 0 0 1px #ffffff80}
+.liquid-surface{position:relative;background:transparent;border-color:#fffffff0;box-shadow:0 14px 42px #2535511c,0 3px 10px #2535510d,inset 0 1px 1px #fff,inset 0 -1px 2px #7b94b638}
+.liquid-surface::after{content:"";position:absolute;inset:0;z-index:2;pointer-events:none;border-radius:inherit;padding:1.5px;background:linear-gradient(135deg,#fff 0%,#ffffffd9 20%,#ffffff20 42%,#a4b8d066 62%,#fff 86%,#ffffff70 100%);mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude;-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor}
 .liquid-surface>.liquid-surface-optics{position:absolute;inset:0;display:block;pointer-events:none;border-radius:inherit;z-index:0;overflow:hidden}
 .liquid-surface>:not(.liquid-surface-optics):not(.sr-only){position:relative;z-index:1}
-.composer{border-radius:26px;background:#ffffff18}
+.composer{border-radius:26px;background:#ffffff08}
 .composer:focus-within{border-color:#b6c9e1;box-shadow:0 12px 40px #25355114,0 0 0 3px #d3e3f029}
 .model-menu.liquid-surface{position:absolute;border-radius:20px;box-shadow:0 16px 48px #25355120,0 2px 8px #2535510a}
 .model-option:hover,.model-option.selected{background:#d8e2ed45}

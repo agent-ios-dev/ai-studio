@@ -8,13 +8,13 @@ for (const surface of surfaces) {
   glass.className = "liquid-surface-optics";
   glass.setAttribute("aria-hidden", "true");
   glass.setAttribute("flex-center", "false");
-  glass.setAttribute("blur", "0.7");
+  glass.setAttribute("blur", "0.35");
   glass.setAttribute("fallback-blur", "16");
   glass.setAttribute("bezel-width", "18");
-  glass.setAttribute("glass-thickness", "65");
-  glass.setAttribute("refraction-scale", "0.8");
-  glass.setAttribute("specular-opacity", "0.65");
-  glass.setAttribute("tint", surface.matches(".composer") ? "rgba(255,255,255,0.34)" : "rgba(255,255,255,0.76)");
+  glass.setAttribute("glass-thickness", "100");
+  glass.setAttribute("refraction-scale", "1.5");
+  glass.setAttribute("specular-opacity", "1");
+  glass.setAttribute("tint", surface.matches(".composer") ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.62)");
   // A hidden menu/dialog will get its first map only when opened.
   glass.setAttribute("width", "1");
   glass.setAttribute("height", "1");
