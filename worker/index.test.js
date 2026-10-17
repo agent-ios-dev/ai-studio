@@ -1023,3 +1023,11 @@ test('live voice admission rejects depleted quota and WebSocket tickets obey ori
  db.sqlite.prepare("UPDATE live_sessions SET status='issued',ticket_expires_at=0").run();assert.equal((await worker.fetch(socketRequest(),env(db))).status,401);
  assert.equal((await worker.fetch(new Request('https://api.example.test/api/live/socket'),env(db))).status,426);
 });
+
+test('continuing a long voice conversation retains the complete stored transcript',async context=>{
+ const db=database();setupUser(db,'long-voice',TOKEN_A);context.after(()=>db.sqlite.close());
+ const history=Array.from({length:205},(_,i)=>({role:i%2?'assistant':'user',content:i===0?'a'.repeat(7000):'Message '+i}));
+ db.sqlite.prepare("INSERT INTO chats(id,user_id,title,model,messages_json,updated_at) VALUES('long-voice-chat','long-voice','History','gemini-3.8-live',?,?)").run(JSON.stringify(history),Date.now());
+ const response=await worker.fetch(makeRequest('/api/live/session',TOKEN_A,'POST',{chatId:'long-voice-chat'}),env(db));assert.equal(response.status,200);
+ const session=await response.json();const stored=db.sqlite.prepare('SELECT context_json FROM live_sessions WHERE id=?').get(session.sessionId);assert.deepEqual(JSON.parse(stored.context_json),history);
+});

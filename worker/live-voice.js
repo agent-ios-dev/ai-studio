@@ -41,7 +41,7 @@ export async function createLiveSession(request, env, user, settings, day, reset
     const chat = await env.DB.prepare('SELECT id, model, messages_json FROM chats WHERE id=? AND user_id=?').bind(body.chatId, user.id).first();
     if (chat?.model === MODEL) { chatId = chat.id; try { context = JSON.parse(chat.messages_json); } catch { /* Empty history. */ } }
   }
-  context = context.filter(x => ['user', 'assistant'].includes(x.role) && typeof x.content === 'string').slice(-200).map(x => ({ role: x.role, content: x.content.slice(0, 6000) }));
+  context = context.filter(x => ['user', 'assistant'].includes(x.role) && typeof x.content === 'string').map(x => ({ role: x.role, content: x.content }));
   if (user.memory_enabled) {
     const memory = await env.DB.prepare('SELECT summary FROM memory_summaries WHERE user_id=?').bind(user.id).first();
     if (memory?.summary) instructions += '\nЛичная сводка памяти пользователя:\n' + memory.summary;
@@ -131,7 +131,7 @@ export async function openLiveSocket(request, env, ctx) {
         await env.DB.prepare("UPDATE live_sessions SET status='closed', context_json='[]', instructions='' WHERE id=?").bind(row.id).run();
         if (messages.length) {
           const title = messages.find(x => x.role === 'user')?.content.slice(0, 46) || 'Голосовой разговор';
-          await env.DB.prepare('INSERT INTO chats(id,user_id,title,model,messages_json,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET messages_json=excluded.messages_json,updated_at=excluded.updated_at').bind(row.chat_id, row.user_id, title, MODEL, JSON.stringify(messages.slice(-200)), Date.now()).run();
+          await env.DB.prepare('INSERT INTO chats(id,user_id,title,model,messages_json,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET messages_json=excluded.messages_json,updated_at=excluded.updated_at').bind(row.chat_id, row.user_id, title, MODEL, JSON.stringify(messages), Date.now()).run();
         }
         safeSend({ type: 'ended', reason, used: bill.used, estimated: bill.estimated, chatId: messages.length ? row.chat_id : null });
       } finally { try { server.close(1000, 'Session ended'); } catch { /* Already closed. */ } }
