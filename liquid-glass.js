@@ -14,7 +14,7 @@ for (const surface of surfaces) {
   glass.setAttribute("glass-thickness", "100");
   glass.setAttribute("refraction-scale", "1.5");
   glass.setAttribute("specular-opacity", "0.3");
-  glass.setAttribute("tint", surface.matches(".topbar button") ? "transparent" : surface.matches(".composer") ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.62)");
+  glass.setAttribute("tint", "rgba(255,255,255,0.3)");
   // A hidden menu/dialog will get its first map only when opened.
   glass.setAttribute("width", "1");
   glass.setAttribute("height", "1");
