@@ -1,0 +1,28 @@
+/* Voice screen follows the supplied 320x568 SVG, with responsive safe areas. */
+.voice-mode-button{width:32px;height:32px;border:0;border-radius:50%;background:transparent;color:inherit;display:grid;place-items:center;padding:0;flex:none}
+.voice-mode-button:hover{background:#80808022}.voice-mode-button svg{width:20px;height:20px}
+.live-voice-dialog{position:fixed;inset:0;margin:0;padding:0;width:100%;height:100dvh;max-width:none;max-height:none;border:0;border-radius:0;background:#fff;color:#000;overflow:hidden}
+.live-voice-dialog::backdrop{background:#fff}
+.live-voice-header{height:81px;position:absolute;inset:0 0 auto;background:linear-gradient(180deg,#0003,transparent);text-align:center}
+.live-voice-header h2{font-size:20px;line-height:24px;font-weight:400;margin:21px 0 0}
+.live-voice-time{display:block;margin-top:5px;font-size:11px;color:#777;font-variant-numeric:tabular-nums}
+.live-voice-orb{--voice-level:0;position:absolute;top:48.77%;left:50%;width:min(69.4vw,300px);aspect-ratio:1;border-radius:50%;background:#000;overflow:hidden;transform:translate(-50%,-50%) scale(calc(1 + var(--voice-level)*.1));transition:transform .1s linear;isolation:isolate}
+.live-voice-orb::before{content:"";position:absolute;inset:-15%;background:conic-gradient(from 45deg,#000 0deg,#555 45deg,#000 90deg,#555 135deg,#000 180deg,#555 225deg,#000 270deg,#555 315deg,#000 360deg);filter:blur(10px);opacity:.75;animation:voice-orbit 12s linear infinite}
+.live-voice-orb::after{content:"";position:absolute;inset:0;background:radial-gradient(circle,#8a8a8a80 0%,#0000 58%,#000 78%);animation:voice-breathe 4s ease-in-out infinite}
+.live-voice-dialog[data-state="speaking"] .live-voice-orb::before{animation-duration:3s}
+.live-voice-dialog[data-state="connecting"] .live-voice-orb::after{animation-duration:1.2s}
+.live-voice-dialog[data-state="muted"] .live-voice-orb::before{animation-play-state:paused;opacity:.3}
+.live-voice-info{position:absolute;top:calc(48.77% + min(34.7vw,150px) + 19px);left:20px;right:20px;max-width:600px;margin:0 auto;text-align:center;max-height:calc(51.23% - min(34.7vw,150px) - 118px);overflow:auto}
+#liveVoiceStatus{margin:0;font-size:14px;line-height:20px;color:#606060}
+.live-voice-caption{font-size:13px;line-height:1.5;color:#444;margin:7px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.live-voice-controls{position:absolute;left:11px;right:15px;bottom:max(12px,env(safe-area-inset-bottom));display:flex;justify-content:space-between;max-width:650px;margin:0 auto;pointer-events:none}
+.live-voice-control{pointer-events:auto;position:relative;display:grid;place-items:center;flex:none;width:68px;height:68px;border-radius:50%;background:#cfcfcf;color:#000;padding:0;border:0}
+.live-voice-control:hover{background:#bbb}.live-voice-control:focus-visible{outline:3px solid #6789b8;outline-offset:4px}.live-voice-control:disabled{opacity:.5;cursor:wait}
+#liveVoiceClose svg{width:45px;height:45px;stroke-width:1.8}#liveVoiceMic svg{width:31px;height:31px;stroke-width:1.9}
+.live-voice-mute-slash{display:none;position:absolute;width:36px;height:3px;border-radius:3px;background:currentColor;rotate:-45deg;box-shadow:0 0 0 2px #cfcfcf}
+.voice-muted .live-voice-mute-slash{display:block}
+@keyframes voice-orbit{to{rotate:360deg}}
+@keyframes voice-breathe{50%{opacity:.5;scale:1.15}}
+@media(forced-colors:none){html[data-theme="dark"] .live-voice-dialog{background:#141518;color:#f0f1f4}html[data-theme="dark"] .live-voice-dialog::backdrop{background:#141518}html[data-theme="dark"] .live-voice-header{background:linear-gradient(180deg,#0008,transparent)}html[data-theme="dark"] .live-voice-orb{box-shadow:0 0 0 1px #ffffff12}html[data-theme="dark"] :is(#liveVoiceStatus,.live-voice-caption){color:#bfc6d2}html[data-theme="dark"] .live-voice-control{background:#373b44;color:#f0f1f4}html[data-theme="dark"] .live-voice-control:hover{background:#484f5b}html[data-theme="dark"] .live-voice-mute-slash{box-shadow:0 0 0 2px #373b44}}
+@media(prefers-reduced-motion:reduce){.live-voice-orb{transform:translate(-50%,-50%);transition:none}.live-voice-orb::before,.live-voice-orb::after{animation:none}}
+@media(forced-colors:active){.live-voice-dialog{background:Canvas;color:CanvasText}.live-voice-control{background:ButtonFace;color:ButtonText;border:1px solid ButtonText}.live-voice-orb{background:CanvasText}.live-voice-orb::before,.live-voice-orb::after{display:none}#liveVoiceStatus,.live-voice-caption{color:CanvasText}}

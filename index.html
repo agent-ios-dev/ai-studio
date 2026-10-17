@@ -19,9 +19,11 @@
     <link rel="manifest" href="./manifest.webmanifest?v=logos2" data-light-href="./manifest.webmanifest?v=logos2" data-dark-href="./manifest-dark.webmanifest?v=logos2" />
     <link rel="stylesheet" href="./styles.css" />
     <link rel="stylesheet" href="./theme.css" />
+    <link rel="stylesheet" href="./live-voice.css" />
   </head>
   <body>
     <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <symbol id="i-live-voice" viewBox="0 0 24 24"><path d="M4 10v4M8 6v12M12 3v18M16 6v12M20 10v4"/></symbol>
       <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" /></symbol>
       <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="16" rx="3"/><path d="M9 4v16"/></symbol>
       <symbol id="i-pencil" viewBox="0 0 24 24"><path d="m13.5 6.5 4 4M4 20l4.2-.9L19 8.3a2.8 2.8 0 0 0-4-4L4.2 15.1 4 20Z"/></symbol>
@@ -52,6 +54,7 @@
           </div>
           <button class="sidebar-action" id="newChatButton"><svg><use href="#i-pencil"/></svg><span>Новый чат</span></button>
           <button class="sidebar-action" id="temporaryChatButton"><svg><use href="#i-spark"/></svg><span>Временный чат</span></button>
+          <button class="sidebar-action" id="liveVoiceMenuButton"><svg><use href="#i-live-voice"/></svg><span>Голосовой режим</span></button>
           <button class="sidebar-action" id="searchButton"><svg><use href="#i-search"/></svg><span>Поиск чатов</span></button>
           <button class="sidebar-action" id="memoryButton"><svg><use href="#i-spark"/></svg><span>Сводка памяти</span></button>
         </div>
@@ -108,7 +111,7 @@
               <textarea id="promptInput" placeholder="Спросите что-нибудь" rows="1" maxlength="12000"></textarea>
               <div class="composer-bottom">
                 <div class="composer-left"><button class="attach-button" id="attachButton" type="button" aria-label="Прикрепить файл" title="Прикрепить файл"><svg><use href="#i-plus"/></svg></button><label class="thinking-picker"><svg><use href="#i-spark"/></svg><select id="thinkingSelect" aria-label="Глубина размышления"></select></label><button class="web-search-toggle" id="webSearchToggle" type="button" aria-label="Поиск в интернете" aria-pressed="false"><svg><use href="#i-globe"/></svg><span>Поиск в интернете</span></button></div>
-                <div class="composer-actions"><button class="voice-button" id="voiceButton" type="button" aria-label="Говорить" title="Говорить"><svg><use href="#i-mic"/></svg></button><button class="send-button" id="sendButton" type="submit" aria-label="Отправить сообщение" title="Отправить сообщение"><svg><use href="#i-arrow"/></svg></button></div>
+                <div class="composer-actions"><button class="voice-mode-button" id="liveVoiceButton" type="button" aria-label="Голосовой режим" title="Голосовой режим"><svg><use href="#i-live-voice"/></svg></button><button class="voice-button" id="voiceButton" type="button" aria-label="Говорить" title="Говорить"><svg><use href="#i-mic"/></svg></button><button class="send-button" id="sendButton" type="submit" aria-label="Отправить сообщение" title="Отправить сообщение"><svg><use href="#i-arrow"/></svg></button></div>
               </div>
             </form>
             <input id="fileInput" type="file" multiple hidden />
@@ -219,6 +222,15 @@
       <div id="searchResults" class="search-results"></div>
     </dialog>
 
+    <dialog id="liveVoiceDialog" class="live-voice-dialog" aria-labelledby="liveVoiceTitle" data-state="connecting">
+      <header class="live-voice-header"><h2 id="liveVoiceTitle">Голос</h2><span id="liveVoiceTime" class="live-voice-time" aria-label="Время до завершения сеанса"></span></header>
+      <div class="live-voice-orb" id="liveVoiceOrb" aria-hidden="true"></div>
+      <div class="live-voice-info"><p id="liveVoiceStatus" role="status" aria-live="polite">Подключаем голос…</p><p id="liveVoiceCaption" class="live-voice-caption" aria-live="off"></p></div>
+      <div class="live-voice-controls">
+        <button id="liveVoiceClose" class="live-voice-control" type="button" aria-label="Завершить разговор" title="Завершить разговор"><svg><use href="#i-close"/></svg></button>
+        <button id="liveVoiceMic" class="live-voice-control" type="button" aria-label="Выключить микрофон" title="Микрофон" aria-pressed="false"><svg><use href="#i-mic"/></svg><span class="live-voice-mute-slash" aria-hidden="true"></span></button>
+      </div>
+    </dialog>
     <div class="toast" id="toast" role="status"></div>
     <script src="./config.js"></script>
     <script type="module" src="./app.js"></script>

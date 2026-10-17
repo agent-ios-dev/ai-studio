@@ -1,4 +1,5 @@
 import "./liquid-glass.js";
+import { createLiveVoice } from "./live-voice.js";
 import { renderMarkdown } from "./markdown.js";
 
 const MODELS = [
@@ -7,6 +8,7 @@ const MODELS = [
   { id: "gpt-6-astra", name: "GPT-6 Astra", provider: "OpenAI", description: "Сложные задачи и рассуждения" },
   { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash", provider: "Google", description: "Быстрые ответы" },
   { id: "gemini-3.5-flash-lite", name: "Gemini 3.5 Flash Lite", provider: "Google", description: "Лёгкая и быстрая модель" },
+  { id: "gemini-3.8-live", name: "Gemini 3.8 Live", provider: "Google", description: "Голосовой разговор", voice: true },
   { id: "nemotron-3-ultra", name: "Nemotron 3 Ultra", provider: "NVIDIA", description: "Сложные задачи и рассуждения" },
 ];
 const MODEL_LOGOS = {
@@ -55,7 +57,7 @@ const state = {
 function id() { return crypto.randomUUID(); }
 function currentChat() { return state.currentId === "temporary" ? state.tempChat : state.chats.find((chat) => chat.id === state.currentId) || null; }
 function selectedModel() { return MODELS.find((model) => model.id === state.model) || { id: state.model, name: `${currentChat()?.modelName || "Модель"} · недоступна` }; }
-function modelAvailable(id) { return MODELS.some((model) => model.id === id && !model.disabled); }
+function modelAvailable(id) { return MODELS.some((model) => model.id === id && !model.disabled && !model.voice); }
 function selectedThinking() { return state.thinking[state.model] || (state.model === "gemini-3.5-flash-lite" ? "minimal" : "medium"); }
 function supportsWebSearch(model) { return ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"].includes(model); }
 function apiUrl(path) { return `${state.apiUrl}${path}`; }
@@ -210,6 +212,7 @@ function renderModels() {
       option.querySelector("strong").textContent = model.name;
       option.querySelector("small").textContent = model.description;
       option.addEventListener("click", () => {
+        if (model.voice) { menu.classList.add("hidden"); $("modelTrigger").setAttribute("aria-expanded", "false"); openLiveVoice(); return; }
         if (currentChat() && currentChat().model !== model.id) {
           state.currentId = null;
           showToast("Для другой модели открыт новый чат");
@@ -411,7 +414,7 @@ function renderAttachments() {
 function renderAll() { renderModels(); renderThinking(); renderWebSearch(); renderList(); renderMessages(); renderQuota(); renderAttachments(); updateSend(); renderVoice(); }
 function updateSend() {
   const ready = !!$("promptInput").value.trim() || state.files.length > 0;
-  const maintenance = selectedModel().disabled === true;
+  const maintenance = selectedModel().disabled === true || selectedModel().voice === true;
   $("sendButton").disabled = maintenance;
   $("promptInput").disabled = maintenance;
   $("attachButton").disabled = maintenance;
@@ -426,11 +429,11 @@ function renderVoice() {
   const button = $("voiceButton");
   const recording = voiceRecorder?.state === "recording";
   button.classList.toggle("recording", recording);
-  button.disabled = selectedModel().disabled === true || voiceProcessing || (state.busy && !recording);
+  button.disabled = selectedModel().disabled === true || selectedModel().voice === true || voiceProcessing || (state.busy && !recording);
   button.setAttribute("aria-label", recording ? "Остановить запись" : voiceProcessing ? "Распознаём речь" : "Говорить");
   button.title = button.getAttribute("aria-label");
   button.innerHTML = recording ? '<svg><use href="#i-stop"/></svg>' : '<svg><use href="#i-mic"/></svg>';
-  $("promptInput").placeholder = selectedModel().disabled ? "GPT-6 Luna: технические работы" : recording ? "Говорите… Нажмите на микрофон, чтобы отправить" : voiceProcessing ? "Распознаём речь…" : "Спросите что-нибудь";
+  $("promptInput").placeholder = selectedModel().voice ? "Продолжите голосовой разговор или начните новый чат" : selectedModel().disabled ? "GPT-6 Luna: технические работы" : recording ? "Говорите… Нажмите на микрофон, чтобы отправить" : voiceProcessing ? "Распознаём речь…" : "Спросите что-нибудь";
 }
 async function toggleVoice() {
   if (voiceRecorder?.state === "recording") { voiceRecorder.stop(); return; }
@@ -955,6 +958,16 @@ $("promptInput").addEventListener("input", () => { const input = $("promptInput"
 $("promptInput").addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); sendMessage(); } });
 $("composerForm").addEventListener("submit", (event) => { event.preventDefault(); sendMessage(); });
 $("voiceButton").addEventListener("click", toggleVoice);
+const liveVoice = createLiveVoice({ api, getConnection: () => ({ apiUrl: state.apiUrl }), onClosed: () => connect(false), toast: showToast });
+function openLiveVoice() {
+  if (!state.connected) { openAuth(); return; }
+  if (state.busy || voiceProcessing || voiceRecorder?.state === "recording") { showToast("Сначала завершите текущий запрос или запись."); return; }
+  if (state.remaining <= 0) { showToast("Токенный лимит исчерпан. Он обновится в 00:00 по Москве."); return; }
+  closeMobile();
+  void liveVoice.start(currentChat()?.model === "gemini-3.8-live" ? currentChat().id : null);
+}
+$("liveVoiceButton").addEventListener("click", openLiveVoice);
+$("liveVoiceMenuButton").addEventListener("click", openLiveVoice);
 $("attachButton").addEventListener("click", () => $("fileInput").click());
 $("fileInput").addEventListener("change", (event) => {
   for (const file of event.target.files) {

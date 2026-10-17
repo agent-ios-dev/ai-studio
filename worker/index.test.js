@@ -26,6 +26,7 @@ function database() {
   sqlite.exec(readFileSync(new URL("./migrations/004_telegram_auth.sql", import.meta.url), "utf8"));
   sqlite.exec(readFileSync(new URL("./migrations/005_pins_memory.sql", import.meta.url), "utf8"));
   sqlite.exec(readFileSync(new URL("./migrations/006_token_quota.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("./migrations/007_live_voice.sql", import.meta.url), "utf8"));
   return {
     sqlite,
     async batch(statements) {
@@ -996,4 +997,29 @@ test("Gemini 3.5 Flash Lite uses the official endpoint, backup keys, thinking, c
   const profile=await worker.fetch(makeRequest('/api/profile',TOKEN_A,'PUT',{displayName:'Юра',defaultModel:'gemini-3.5-flash-lite',memoryEnabled:true}),environment);assert.equal((await profile.json()).defaultModel,'gemini-3.5-flash-lite');
   for(const extra of [{thinking:'max'},{webSearch:true},{files:[{name:'file.zip',type:'application/zip',size:4,data:'dGVzdA=='}]}])assert.equal((await worker.fetch(makeRequest('/api/chat',TOKEN_A,'POST',{model:'gemini-3.5-flash-lite',temporary:true,content:'Привет',files:[],...extra}),environment)).status,400);
   assert.equal(seen.length,6);
+});
+
+test('live voice tickets reserve shared tokens, are private and cancel safely before connecting',async context=>{
+ const db=database();setupUser(db,'live-owner',TOKEN_A);setupUser(db,'live-other',TOKEN_B);context.after(()=>db.sqlite.close());
+ const request=()=>worker.fetch(makeRequest('/api/live/session',TOKEN_A,'POST',{}),env(db));
+ assert.equal((await worker.fetch(makeRequest('/api/live/session','wrong','POST',{}),env(db))).status,401);
+ const issued=await request();assert.equal(issued.status,200);const session=await issued.json();assert.equal(session.model,'gemini-3.8-live');assert.equal(session.budget,50000);assert.equal(session.ticket.length,72);assert.equal(session.apiKey,undefined);
+ const row=db.sqlite.prepare('SELECT * FROM live_sessions WHERE id=?').get(session.sessionId);assert.notEqual(row.ticket_hash,session.ticket);assert.equal(row.user_id,'live-owner');assert.ok(row.expires_at<=nextDailyResetAt());
+ assert.equal((await request()).status,429);
+ await worker.fetch(makeRequest('/api/live/cancel',TOKEN_B,'POST',{sessionId:session.sessionId}),env(db));assert.equal((await tokenBalance(db,'live-owner',dayKey(),50000)).remaining,0);
+ await worker.fetch(makeRequest('/api/live/cancel',TOKEN_A,'POST',{sessionId:session.sessionId}),env(db));assert.equal((await tokenBalance(db,'live-owner',dayKey(),50000)).remaining,50000);
+ const expired=await (await request()).json();db.sqlite.prepare('UPDATE live_sessions SET ticket_expires_at=0 WHERE id=?').run(expired.sessionId);
+ assert.equal((await request()).status,200);assert.equal(db.sqlite.prepare('SELECT status FROM live_sessions WHERE id=?').get(expired.sessionId).status,'closed');
+});
+
+test('live voice admission rejects depleted quota and WebSocket tickets obey origin, expiry and single use',async context=>{
+ const db=database();setupUser(db,'live-secure',TOKEN_A);context.after(()=>db.sqlite.close());
+ db.sqlite.prepare('INSERT INTO token_usage(user_id,day,used) VALUES(?,?,49900)').run('live-secure',dayKey());
+ assert.equal((await worker.fetch(makeRequest('/api/live/session',TOKEN_A,'POST',{}),env(db))).status,429);assert.equal((await tokenBalance(db,'live-secure',dayKey(),50000)).reserved,0);
+ db.sqlite.prepare('UPDATE token_usage SET used=0').run();const session=await (await worker.fetch(makeRequest('/api/live/session',TOKEN_A,'POST',{}),env(db))).json();
+ const socketRequest=(origin='https://site.example.test')=>new Request('https://api.example.test/api/live/socket?ticket='+session.ticket,{headers:{Upgrade:'websocket',Origin:origin}});
+ assert.equal((await worker.fetch(socketRequest('https://evil.example'),env(db))).status,403);assert.equal(db.sqlite.prepare('SELECT status FROM live_sessions WHERE id=?').get(session.sessionId).status,'issued');
+ db.sqlite.prepare("UPDATE live_sessions SET status='active'").run();assert.equal((await worker.fetch(socketRequest(),env(db))).status,401);
+ db.sqlite.prepare("UPDATE live_sessions SET status='issued',ticket_expires_at=0").run();assert.equal((await worker.fetch(socketRequest(),env(db))).status,401);
+ assert.equal((await worker.fetch(new Request('https://api.example.test/api/live/socket'),env(db))).status,426);
 });

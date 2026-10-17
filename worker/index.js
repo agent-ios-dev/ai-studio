@@ -1,6 +1,7 @@
 import { handleEmailAuth, sessionUser, bodyFor } from "./email-auth.js";
 import { handleTelegramAuth, telegramSessionUser } from "./telegram-auth.js";
 import { tokenUsage, inputTokenBound, tokenBalance, reserveTokens, settleTokens } from "./token-quota.js";
+import { createLiveSession, cancelLiveSession, openLiveSocket, recoverLiveSessions } from "./live-voice.js";
 
 const DAY_MS = 86_400_000;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -13,7 +14,7 @@ const ALLOWED_MODELS = new Set(["gpt-6-luna", "gpt-6-sol", "gpt-6-astra", ...GEM
 const DEFAULT_MODEL = "gemini-3.8-flash";
 function modelEnabled(_env, model) { return ALLOWED_MODELS.has(model); }
 const THINKING = { "gpt-6-luna": new Set(["none", "low", "medium", "high", "xhigh", "max"]), "gpt-6-sol": new Set(["low", "medium", "high"]), "gpt-6-astra": new Set(["low", "medium", "high"]), "gemini-3.8-flash": new Set(["low", "medium", "high"]), "gemini-3.5-flash-lite": new Set(["minimal", "medium", "high"]), "nemotron-3-ultra": new Set(["low", "medium", "high"]) };
-const MODEL_NAMES = { "gpt-6-luna": "GPT-6 Luna", "gpt-6-sol": "GPT-6 Sol", "gemini-3.8-flash": "Gemini 3.8 Flash", "gemini-3.5-flash-lite": "Gemini 3.5 Flash Lite", "nemotron-3-ultra": "Nemotron 3 Ultra", "qwen3.8-27b": "Qwen3.8 27B", "gpt-6-astra": "GPT-6 Astra", "claude-opus-5": "Claude Opus 5" };
+const MODEL_NAMES = { "gpt-6-luna": "GPT-6 Luna", "gpt-6-sol": "GPT-6 Sol", "gemini-3.8-flash": "Gemini 3.8 Flash", "gemini-3.5-flash-lite": "Gemini 3.5 Flash Lite", "gemini-3.8-live": "Gemini 3.8 Live", "nemotron-3-ultra": "Nemotron 3 Ultra", "qwen3.8-27b": "Qwen3.8 27B", "gpt-6-astra": "GPT-6 Astra", "claude-opus-5": "Claude Opus 5" };
 const OPENAI_FILE_EXTENSIONS = new Set(["pdf", "txt", "md", "json", "csv", "html", "xml", "js", "ts", "py", "css", "doc", "docx", "rtf", "odt", "ppt", "pptx", "xls", "xlsx"]);
 const GEMINI_MEDIA_TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp", "image/heic", "image/heif", "audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/mp4", "audio/ogg", "audio/flac", "video/mp4", "video/webm", "video/quicktime"]);
 
@@ -299,6 +300,8 @@ async function handleApi(request, env) {
   const settings = await settingsFor(env.DB);
   const url = new URL(request.url);
   const path = url.pathname;
+  if (request.method === "POST" && path === "/api/live/session") return createLiveSession(request, env, user, settings, dayKey(), nextDailyResetAt(), instructionsFor(user, ""));
+  if (request.method === "POST" && path === "/api/live/cancel") return cancelLiveSession(request, env, user);
   if (request.method === "PUT" && path === "/api/memory/settings") {
     const body = await bodyFor(request);
     if (typeof body?.memoryEnabled !== "boolean") return safeError("Укажите состояние памяти.");
@@ -359,6 +362,7 @@ async function handleApi(request, env) {
     }
   }
   if (request.method === "GET" && path === "/api/me") {
+    await recoverLiveSessions(env, user.id);
     const updated = await refreshResets(env.DB, user, settings);
     const balance = await tokenBalance(env.DB, user.id, dayKey(), settings.daily_limit);
     return json({ ...balance, nextDailyResetAt: nextDailyResetAt(), resetBalance: updated.reset_balance, resetCap: settings.reset_cap, resetIntervalDays: settings.reset_interval_days, resetGrantAmount: settings.reset_grant_amount, nextResetAt: nextGrantAt(updated, settings), role: user.role, authType: user.auth_type, email: user.email, telegramUsername: user.telegram_username || null, telegramName: user.telegram_name || null });
@@ -563,7 +567,7 @@ async function handleApi(request, env) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const origin = request.headers.get("Origin");
     const allowedOrigins = String(env.ALLOWED_ORIGIN || "").split(",").map((value) => value.trim()).filter(Boolean);
     if (!allowedOrigins.length) return safeError("ALLOWED_ORIGIN не настроен.", 503);
@@ -571,8 +575,9 @@ export default {
     const cors = { "Access-Control-Allow-Origin": origin || allowedOrigins[0], "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Admin-Password", "Vary": "Origin" };
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     let response;
-    try { response = await handleApi(request, env); }
+    try { response = new URL(request.url).pathname === "/api/live/socket" ? await openLiveSocket(request, env, ctx) : await handleApi(request, env); }
     catch { response = safeError("Внутренняя ошибка сервера.", 500); }
+    if (response.status === 101) return response;
     const headers = new Headers(response.headers);
     for (const [key, value] of Object.entries(cors)) headers.set(key, value);
     return new Response(response.body, { status: response.status, headers });

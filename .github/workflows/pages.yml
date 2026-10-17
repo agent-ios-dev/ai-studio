@@ -28,7 +28,7 @@ jobs:
           CHAT_API_URL: ${{ vars.CHAT_API_URL }}
         run: |
           mkdir _site
-          cp index.html admin.html styles.css admin.css theme.js theme.css app.js markdown.js liquid-glass.js admin.js favicon.svg favicon.ico apple-touch-icon.png manifest.webmanifest manifest-dark.webmanifest _site/
+          cp index.html admin.html styles.css admin.css theme.js theme.css live-voice.js live-voice.css voice-capture.js app.js markdown.js liquid-glass.js admin.js favicon.svg favicon.ico apple-touch-icon.png manifest.webmanifest manifest-dark.webmanifest _site/
           cp -r vendor _site/vendor
           cp -r assets _site/assets
           python - <<'PY'
@@ -42,6 +42,10 @@ jobs:
           page.write_text(page.read_text(encoding='utf-8').replace('./app.js"', './app.js?v=' + os.environ['GITHUB_SHA'] + '"').replace('./styles.css"', './styles.css?v=' + os.environ['GITHUB_SHA'] + '"'), encoding='utf-8')
           app = Path('_site/app.js')
           app.write_text(app.read_text(encoding='utf-8').replace('./markdown.js"', './markdown.js?v=' + os.environ['GITHUB_SHA'] + '"').replace('./liquid-glass.js"', './liquid-glass.js?v=' + os.environ['GITHUB_SHA'] + '"'), encoding='utf-8')
+          app.write_text(app.read_text(encoding='utf-8').replace('./live-voice.js"', './live-voice.js?v=' + os.environ['GITHUB_SHA'] + '"'), encoding='utf-8')
+          page.write_text(page.read_text(encoding='utf-8').replace('./live-voice.css"', './live-voice.css?v=' + os.environ['GITHUB_SHA'] + '"'), encoding='utf-8')
+          live = Path('_site/live-voice.js')
+          live.write_text(live.read_text(encoding='utf-8').replace("'./voice-capture.js'", "'./voice-capture.js?v=" + os.environ['GITHUB_SHA'] + "'"), encoding='utf-8')
           admin_page = Path('_site/admin.html')
           admin_page.write_text(admin_page.read_text(encoding='utf-8').replace('./admin.js"', './admin.js?v=' + os.environ['GITHUB_SHA'] + '"').replace('./admin.css"', './admin.css?v=' + os.environ['GITHUB_SHA'] + '"'), encoding='utf-8')
           PY
