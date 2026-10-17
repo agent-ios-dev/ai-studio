@@ -47,3 +47,13 @@ for (const surface of surfaces) {
   }).observe(surface, { childList: true });
   resize();
 }
+
+// Reserve scrollable space for the floating composer, including growing drafts
+// and attachments, so the last message can still be read above it.
+const composerArea = document.querySelector(".composer-area");
+const conversation = document.getElementById("conversation");
+new ResizeObserver(() => {
+  const atBottom = conversation.scrollHeight - conversation.scrollTop - conversation.clientHeight < 3;
+  composerArea.closest(".main-panel").style.setProperty("--composer-height", `${Math.ceil(composerArea.getBoundingClientRect().height)}px`);
+  if (atBottom) requestAnimationFrame(() => { conversation.scrollTop = conversation.scrollHeight; });
+}).observe(composerArea);

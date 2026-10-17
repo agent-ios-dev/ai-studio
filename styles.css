@@ -73,3 +73,9 @@
 @media(max-width:760px){.conversation{padding-top:74px;scroll-padding-top:74px}}
 @media(prefers-reduced-transparency:reduce){.topbar .mobile-menu.liquid-surface,.topbar .top-new-chat.liquid-surface,.topbar .model-trigger{background:#fafbfd}}
 @media(forced-colors:active){.topbar .mobile-menu.liquid-surface,.topbar .top-new-chat.liquid-surface,.topbar .model-trigger{background:ButtonFace;color:ButtonText}}
+
+/* Let messages pass beneath the glass composer while keeping the end readable. */
+.conversation{min-height:0;padding-bottom:calc(var(--composer-height,140px) + 16px);scroll-padding-bottom:calc(var(--composer-height,140px) + 16px)}
+.composer-area{position:absolute;z-index:5;left:0;right:0;bottom:0;background:transparent;pointer-events:none;padding-bottom:max(14px,env(safe-area-inset-bottom))}
+.composer-area .composer{pointer-events:auto}
+@media(max-width:760px){.composer-area{padding-bottom:max(10px,env(safe-area-inset-bottom))}}
