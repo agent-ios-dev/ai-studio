@@ -1,7 +1,7 @@
 import "./vendor/liquid-web/lg-component.js";
 
 // Keep the original form controls and dialog semantics outside the decorative glass.
-const surfaces = document.querySelectorAll(".composer, .model-menu, .settings-dialog, .search-dialog");
+const surfaces = document.querySelectorAll(".composer, .model-menu, .settings-dialog, .search-dialog, .topbar .mobile-menu, .topbar .top-new-chat");
 for (const surface of surfaces) {
   surface.classList.add("liquid-surface");
   const glass = document.createElement("liquid-glass");
@@ -14,7 +14,7 @@ for (const surface of surfaces) {
   glass.setAttribute("glass-thickness", "100");
   glass.setAttribute("refraction-scale", "1.5");
   glass.setAttribute("specular-opacity", "1");
-  glass.setAttribute("tint", surface.matches(".composer") ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.62)");
+  glass.setAttribute("tint", surface.matches(".composer, .topbar button") ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.62)");
   // A hidden menu/dialog will get its first map only when opened.
   glass.setAttribute("width", "1");
   glass.setAttribute("height", "1");

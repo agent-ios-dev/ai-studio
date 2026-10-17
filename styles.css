@@ -59,3 +59,17 @@
 @media(max-width:760px){.topbar{height:74px;padding:13px;gap:12px}.topbar::before{height:99px}.topbar .model-trigger{font-size:18px}.topbar .model-menu{left:-56px}}
 @media(max-width:360px){.topbar{gap:9px}.topbar .model-trigger{font-size:16px}}
 @media(forced-colors:active){.topbar::before{display:none}.topbar .mobile-menu,.topbar .top-new-chat{border:1px solid ButtonText;background:ButtonFace;color:ButtonText}}
+
+/* Conversation scrolls behind the floating glass controls. */
+.main-panel{position:relative}
+.topbar{position:absolute;top:0;left:0;right:0;pointer-events:none}
+.topbar::before{display:none}
+.topbar>button,.topbar .model-control{pointer-events:auto}
+.conversation{padding-top:76px;scroll-padding-top:76px}
+.topbar .mobile-menu.liquid-surface,.topbar .top-new-chat.liquid-surface{background:#ffffff12;border:1px solid #ffffffc9;box-shadow:0 4px 16px #263b5724,inset 0 1px 1px #fff,inset 0 -1px 2px #748ba838}
+.topbar .mobile-menu.liquid-surface:hover,.topbar .top-new-chat.liquid-surface:hover{background:#ffffff28}
+.topbar .model-trigger{background:#ffffff60;text-shadow:0 1px 3px #fff,0 0 8px #fff}
+.topbar .model-trigger:hover{background:#ffffff9c}
+@media(max-width:760px){.conversation{padding-top:74px;scroll-padding-top:74px}}
+@media(prefers-reduced-transparency:reduce){.topbar .mobile-menu.liquid-surface,.topbar .top-new-chat.liquid-surface,.topbar .model-trigger{background:#fafbfd}}
+@media(forced-colors:active){.topbar .mobile-menu.liquid-surface,.topbar .top-new-chat.liquid-surface,.topbar .model-trigger{background:ButtonFace;color:ButtonText}}
