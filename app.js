@@ -171,7 +171,7 @@ function renderQuota() {
   $("limitsNumber").textContent = state.connected ? `${percent}%` : "—";
   $("limitsFill").style.width = state.connected ? `${percent}%` : "0%";
   $("limitsResetTime").textContent = `${state.limit.toLocaleString("ru-RU")} токенов в сутки на все модели вместе. Учитываются контекст, ответ и рассуждения. Лимит обновляется в 00:00 по Москве.${state.estimated ? " Часть расхода оценена: провайдер не сообщил точное число токенов." : ""}`;
-  $("limitsCaption").textContent = state.connected ? "единого токенного лимита осталось сегодня" : "лимита осталось сегодня";
+  $("limitsCaption").textContent = "лимита осталось сегодня";
   $("resetBalance").textContent = state.connected ? `${state.resetBalance} из ${state.resetCap}` : "—";
   $("nextResetText").textContent = state.connected ? (state.nextResetAt ? `Начисление: +${state.resetGrantAmount} каждые ${state.resetIntervalDays} дн. Следующее — ${new Date(state.nextResetAt).toLocaleString("ru-RU")}.` : "Запас сбросов заполнен.") : "Войдите, чтобы увидеть сбросы.";
   $("useResetButton").disabled = !state.connected || state.resetBalance < 1 || state.remaining >= state.limit;
@@ -751,7 +751,7 @@ let memoryReturnToSettings = false;
 function memoryError(text = "") { $("memoryError").textContent = text; $("memoryError").classList.toggle("hidden", !text); $("refreshMemoryButton").classList.toggle("hidden", !text); }
 function renderMemory() {
   $("memorySummary").textContent = memoryData?.summary || (memoryData ? "Сводка появится автоматически, когда вы расскажете о себе в обычном чате. Здесь можно уточнить или удалить сведения." : "Загружаем…");
-  $("memoryQuota").textContent = "Обновление памяти расходует единый токенный лимит. Автоматическая память включена в обычный ответ.";
+  $("memoryQuota").textContent = "Обновление памяти расходует токенный лимит. Автоматическая память включена в обычный ответ.";
   $("memoryEnabledNote").textContent = memoryData && !memoryData.memoryEnabled ? "Использование памяти отключено в настройках. Сводка сохраняется, но не передаётся в чаты." : "Сводка учитывается в обычных чатах при включённой памяти. Временные чаты её не используют.";
   $("updateMemoryButton").disabled = memoryBusy || memoryToggleBusy || !memoryData || memoryData.remaining <= 0;
   $("memoryCommandInput").disabled = memoryBusy || memoryToggleBusy;
