@@ -33,10 +33,10 @@ function normalizeEmail(value) {
   if (email.length > 254 || email.split("@")[0].length > 64 || !/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i.test(email)) return null;
   return email;
 }
-async function bodyFor(request) {
-  if (Number(request.headers.get("Content-Length") || 0) > 4096) return null;
+async function bodyFor(request, maxBytes = 4096) {
+  if (Number(request.headers.get("Content-Length") || 0) > maxBytes) return null;
   const text = await request.text();
-  if (text.length > 4096) return null;
+  if (text.length > maxBytes) return null;
   try { const body = JSON.parse(text); return body && typeof body === "object" && !Array.isArray(body) ? body : null; } catch { return null; }
 }
 async function reserveRate(db, bucket, limit, expiresAt, now) {
@@ -133,4 +133,4 @@ async function handleEmailAuth(request, env) {
   return response({ token, email: consumed.email, expiresAt: now + SESSION_TTL });
 }
 
-export { handleEmailAuth, sessionUser, normalizeEmail };
+export { handleEmailAuth, sessionUser, normalizeEmail, randomToken, sha256, signature, reserveRate, bodyFor };

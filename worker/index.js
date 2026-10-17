@@ -1,4 +1,5 @@
 import { handleEmailAuth, sessionUser } from "./email-auth.js";
+import { handleTelegramAuth, telegramSessionUser } from "./telegram-auth.js";
 
 const DAY_MS = 86_400_000;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -132,7 +133,7 @@ async function userForRequest(request, env) {
   if (!match) return null;
   const tokenHash = await hashToken(match[1]);
   const legacy = await env.DB.prepare("SELECT id, role, display_name, about_text, default_model, memory_enabled, reset_balance, reset_last_grant_at FROM users WHERE token_hash = ?").bind(tokenHash).first();
-  return legacy ? { ...legacy, auth_type: "link", email: null } : sessionUser(env.DB, tokenHash);
+  return legacy ? { ...legacy, auth_type: "link", email: null } : await sessionUser(env.DB, tokenHash) || telegramSessionUser(env.DB, tokenHash);
 }
 async function settingsFor(db) {
   return await db.prepare("SELECT daily_limit, reset_interval_days, reset_cap, reset_grant_amount FROM settings WHERE id = 1").first() || { daily_limit: 30, reset_interval_days: 7, reset_cap: 3, reset_grant_amount: 1 };
@@ -291,7 +292,7 @@ function instructionsFor(user, memory) {
 }
 async function handleApi(request, env) {
   if (!env.DB) return safeError("База D1 ещё не подключена.", 503);
-  const authResponse = await handleEmailAuth(request, env);
+  const authResponse = await handleTelegramAuth(request, env) || await handleEmailAuth(request, env);
   if (authResponse) return authResponse;
   const user = await userForRequest(request, env);
   if (!user) return safeError("Сеанс завершён или личная ссылка недействительна. Войдите снова.", 401);
@@ -302,7 +303,7 @@ async function handleApi(request, env) {
     const updated = await refreshResets(env.DB, user, settings);
     const used = await usageForUser(env.DB, user.id);
     const smartUsed = await usageForUser(env.DB, user.id, true);
-    return json({ limit: settings.daily_limit, used, remaining: Math.max(0, settings.daily_limit - used), smartLimit: SMART_DAILY_LIMIT, smartUsed, smartRemaining: Math.max(0, SMART_DAILY_LIMIT - smartUsed), nextDailyResetAt: nextDailyResetAt(), resetBalance: updated.reset_balance, resetCap: settings.reset_cap, resetIntervalDays: settings.reset_interval_days, resetGrantAmount: settings.reset_grant_amount, nextResetAt: nextGrantAt(updated, settings), role: user.role, authType: user.auth_type, email: user.email });
+    return json({ limit: settings.daily_limit, used, remaining: Math.max(0, settings.daily_limit - used), smartLimit: SMART_DAILY_LIMIT, smartUsed, smartRemaining: Math.max(0, SMART_DAILY_LIMIT - smartUsed), nextDailyResetAt: nextDailyResetAt(), resetBalance: updated.reset_balance, resetCap: settings.reset_cap, resetIntervalDays: settings.reset_interval_days, resetGrantAmount: settings.reset_grant_amount, nextResetAt: nextGrantAt(updated, settings), role: user.role, authType: user.auth_type, email: user.email, telegramUsername: user.telegram_username || null, telegramName: user.telegram_name || null });
   }
   if (request.method === "GET" && path === "/api/profile") {
     const defaultModel = modelEnabled(env, user.default_model) ? user.default_model : DEFAULT_MODEL;

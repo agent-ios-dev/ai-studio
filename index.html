@@ -108,25 +108,14 @@
     <dialog id="authDialog" class="settings-dialog" aria-labelledby="authTitle">
       <form method="dialog" class="dialog-head"><h2 id="authTitle">Войти в AI Studio</h2><button class="icon-button" aria-label="Закрыть"><svg><use href="#i-close"/></svg></button></form>
       <div class="dialog-body">
-        <p class="auth-description">Вход и регистрация по коду из письма. Пароль не нужен.</p>
+        <p class="auth-description">Войдите через Telegram. При первом входе создаётся аккаунт, в котором сохраняются чаты и лимиты.</p>
         <p class="auth-error hidden" id="authError" role="alert"></p>
-        <form id="emailLoginForm">
-          <label class="field-label" for="loginEmail">Электронная почта</label>
-          <input class="text-field" id="loginEmail" type="email" autocomplete="email" maxlength="254" placeholder="you@example.com" required />
-          <button class="primary-button" id="sendCodeButton" type="submit">Получить код</button>
-          <p class="field-note">При первом входе создаётся новый аккаунт.</p>
-        </form>
-        <form id="emailCodeForm" class="hidden">
-          <p class="auth-description" id="codeDestination"></p>
-          <label class="field-label" for="loginCode">Код из письма</label>
-          <input class="text-field auth-code-input" id="loginCode" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required />
-          <p class="field-note">Код действует 10 минут. Если письма нет, проверьте «Спам».</p>
-          <button class="primary-button" id="verifyCodeButton" type="submit">Войти</button>
-          <div class="auth-secondary-actions"><button id="resendCodeButton" type="button">Отправить ещё раз</button><button id="changeEmailButton" type="button">Другая почта</button></div>
-        </form>
+        <button class="primary-button telegram-login-button" id="telegramLoginButton" type="button" disabled>Войти через Telegram</button>
+        <button class="name-later-button hidden" id="cancelTelegramLogin" type="button">Отменить вход</button>
+        <p class="field-note" id="telegramLoginNote" role="status">Подключаем Telegram…</p>
         <details class="legacy-login">
           <summary>Есть личная ссылка?</summary>
-          <p class="field-note">Войдите по ней в прежний профиль. Перенос на почту появится позже.</p>
+          <p class="field-note">Войдите в прежний профиль по личной ссылке. Браузер запомнит её. Telegram создаёт отдельный профиль; перенос появится позже.</p>
           <form id="legacyLoginForm">
             <label class="field-label" for="legacyLoginInput">Личная ссылка</label>
             <input class="text-field" id="legacyLoginInput" type="password" autocomplete="off" placeholder="Вставьте личную ссылку" required />

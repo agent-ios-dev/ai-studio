@@ -17,6 +17,7 @@ function database() {
     CREATE TABLE files (id TEXT PRIMARY KEY, user_id TEXT, chat_id TEXT, name TEXT, mime TEXT, size INTEGER, r2_key TEXT, created_at INTEGER);
   `);
   sqlite.exec(readFileSync(new URL("./migrations/003_email_auth.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("./migrations/004_telegram_auth.sql", import.meta.url), "utf8"));
   return {
     sqlite,
     async batch(statements) {
@@ -59,6 +60,106 @@ const TOKEN_A = "a".repeat(43);
 const TOKEN_B = "b".repeat(43);
 const env = (db) => ({ DB: db, ALLOWED_ORIGIN: "https://site.example.test", ROUTER_CHEAP_API_KEY: "test-router-cheap", GEMINI_API_KEY: "test-gemini", OPENROUTER_API_KEY: "test-openrouter" });
 const emailEnv = (db) => ({ ...env(db), EMAIL_AUTH_ENABLED: "true", EMAIL_AUTH_SECRET: "test-hmac-secret", RESEND_API_KEY: "test-resend", RESEND_FROM: "AI Studio <login@example.test>" });
+const telegramEnv = db => ({ ...env(db), TELEGRAM_AUTH_ENABLED: "true", TELEGRAM_CLIENT_ID: "8890017118" });
+const telegramKey = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]);
+async function mockTelegram(context) {
+  const originalFetch = globalThis.fetch;
+  const jwk = { ...await crypto.subtle.exportKey("jwk", telegramKey.publicKey), kid: "test-telegram", alg: "RS256", use: "sig" };
+  globalThis.fetch = async url => {
+    assert.equal(url, "https://oauth.telegram.org/.well-known/jwks.json");
+    return Response.json({ keys: [jwk] });
+  };
+  context.after(() => { globalThis.fetch = originalFetch; });
+}
+async function telegramToken(nonce, overrides = {}, headerOverrides = {}) {
+  const enc = data => Buffer.from(JSON.stringify(data)).toString("base64url");
+  const header = enc({ alg: "RS256", kid: "test-telegram", ...headerOverrides });
+  const now = Math.floor(Date.now() / 1000);
+  const payload = enc({ iss: "https://oauth.telegram.org", aud: "8890017118", sub: "123456789", iat: now, exp: now + 300, nonce, name: "Telegram User", preferred_username: "test_user", ...overrides });
+  const signed = `${header}.${payload}`;
+  return `${signed}.${Buffer.from(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", telegramKey.privateKey, new TextEncoder().encode(signed))).toString("base64url")}`;
+}
+
+test("Telegram signs in to a persistent separate account, preserves chats and quota, and revokes sessions", async context => {
+  const db = database();
+  context.after(() => db.sqlite.close());
+  await mockTelegram(context);
+  setupUser(db, "legacy-admin", TOKEN_A);
+  db.sqlite.exec("UPDATE users SET role = 'admin' WHERE id = 'legacy-admin'");
+  const environment = telegramEnv(db);
+  const login = async () => {
+    const challenge = await (await worker.fetch(makeRequest("/api/auth/telegram/challenge", null, "POST", {}), environment)).json();
+    const result = await worker.fetch(makeRequest("/api/auth/telegram/verify", null, "POST", { ...challenge, idToken: await telegramToken(challenge.nonce) }), environment);
+    assert.equal(result.status, 200);
+    return { ...await result.json(), challenge };
+  };
+  const first = await login();
+  const me = await (await worker.fetch(makeRequest("/api/me", first.token), environment)).json();
+  assert.equal(me.authType, "telegram");
+  assert.equal(me.telegramUsername, "test_user");
+  assert.equal(me.role, "user");
+  assert.equal(me.remaining, 30);
+  assert.equal(me.smartRemaining, 5);
+  const tgId = db.sqlite.prepare("SELECT user_id FROM telegram_accounts").get().user_id;
+  db.sqlite.prepare("UPDATE users SET display_name = 'Custom name' WHERE id = ?").run(tgId);
+  db.sqlite.prepare("INSERT INTO usage VALUES (?, ?, 7)").run(tgId, dayKey());
+  db.sqlite.prepare("INSERT INTO chats VALUES ('tg-chat', ?, 'Saved chat', 'gpt-6-luna', '[]', ?)").run(tgId, Date.now());
+  const second = await login();
+  assert.notEqual(second.token, first.token);
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM users").get().n, 2);
+  assert.equal((await (await worker.fetch(makeRequest("/api/me", second.token), environment)).json()).remaining, 23);
+  assert.equal((await (await worker.fetch(makeRequest("/api/profile", second.token), environment)).json()).displayName, "Custom name");
+  const chats = await (await worker.fetch(makeRequest("/api/chats", second.token), environment)).json();
+  assert.ok(JSON.stringify(chats).includes("tg-chat"));
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM telegram_sessions WHERE token_hash = ?").get(first.token).n, 0);
+  const replay = await worker.fetch(makeRequest("/api/auth/telegram/verify", null, "POST", { ...first.challenge, idToken: await telegramToken(first.challenge.nonce) }), environment);
+  assert.equal(replay.status, 400);
+  await worker.fetch(makeRequest("/api/auth/logout", first.token, "POST", {}), environment);
+  assert.equal((await worker.fetch(makeRequest("/api/me", first.token), environment)).status, 401);
+  assert.equal((await worker.fetch(makeRequest("/api/me", second.token), environment)).status, 200);
+  db.sqlite.exec("UPDATE telegram_sessions SET expires_at = 0");
+  assert.equal((await worker.fetch(makeRequest("/api/me", second.token), environment)).status, 401);
+  assert.equal((await worker.fetch(makeRequest("/api/me", TOKEN_A), environment)).status, 200);
+});
+
+test("Telegram rejects forged, expired, wrong audience, wrong nonce and unsupported algorithm tokens", async context => {
+  const db = database();
+  context.after(() => db.sqlite.close());
+  await mockTelegram(context);
+  const environment = telegramEnv(db);
+  const challenge = await (await worker.fetch(makeRequest("/api/auth/telegram/challenge", null, "POST", {}), environment)).json();
+  const badTokens = [
+    await telegramToken(challenge.nonce, { aud: "another-app" }),
+    await telegramToken(challenge.nonce, { iss: "https://evil.test" }),
+    await telegramToken(challenge.nonce, { exp: 1 }),
+    await telegramToken(challenge.nonce, { iat: 1 }),
+    await telegramToken("another-nonce"),
+    await telegramToken(challenge.nonce, {}, { alg: "none" }),
+    (await telegramToken(challenge.nonce)).split(".").slice(0, 2).join(".") + ".AAAA",
+  ];
+  for (const idToken of badTokens) assert.equal((await worker.fetch(makeRequest("/api/auth/telegram/verify", null, "POST", { ...challenge, idToken }), environment)).status, 401);
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM users").get().n, 0);
+  const validToken = await telegramToken(challenge.nonce);
+  assert.equal((await worker.fetch(makeRequest("/api/auth/telegram/verify", null, "POST", { ...challenge, verifier: "x".repeat(43), idToken: validToken }), environment)).status, 400);
+  db.sqlite.exec("UPDATE telegram_challenges SET expires_at = 0");
+  assert.equal((await worker.fetch(makeRequest("/api/auth/telegram/verify", null, "POST", { ...challenge, idToken: validToken }), environment)).status, 400);
+});
+
+test("Telegram challenge is single use under concurrent verification and starting login is throttled", async context => {
+  const db = database();
+  context.after(() => db.sqlite.close());
+  await mockTelegram(context);
+  const environment = telegramEnv(db);
+  const challenge = await (await worker.fetch(makeRequest("/api/auth/telegram/challenge", null, "POST", {}), environment)).json();
+  const idToken = await telegramToken(challenge.nonce);
+  const results = await Promise.all([0, 1].map(() => worker.fetch(makeRequest("/api/auth/telegram/verify", null, "POST", { ...challenge, idToken }), environment)));
+  assert.deepEqual(results.map(r => r.status).sort(), [200, 400]);
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM telegram_sessions").get().n, 1);
+  db.sqlite.exec("UPDATE auth_rate_limits SET expires_at = 0");
+  for (let i = 0; i < 20; i++) assert.equal((await worker.fetch(makeRequest("/api/auth/telegram/challenge", null, "POST", {}), environment)).status, 200);
+  assert.equal((await worker.fetch(makeRequest("/api/auth/telegram/challenge", null, "POST", {}), environment)).status, 429);
+  assert.equal((await worker.fetch(makeRequest("/api/auth/telegram/challenge", null, "POST", {}), env(db))).status, 503);
+});
 
 test("email code creates a separate user, stores only hashes, and cannot be replayed", async (context) => {
   const db = database();
