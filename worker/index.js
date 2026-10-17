@@ -1,4 +1,4 @@
-import { handleEmailAuth, sessionUser } from "./email-auth.js";
+import { handleEmailAuth, sessionUser, reserveRate, bodyFor } from "./email-auth.js";
 import { handleTelegramAuth, telegramSessionUser } from "./telegram-auth.js";
 
 const DAY_MS = 86_400_000;
@@ -163,7 +163,7 @@ async function releaseRequest(db, userId, day, smart = false) {
   const table = smart ? "smart_usage" : "usage";
   await db.prepare(`UPDATE ${table} SET count = MAX(0, count - 1) WHERE user_id = ? AND day = ?`).bind(userId, day).run();
 }
-async function callGeminiWithFallback(env, payload, separator, emptyMessage) {
+async function callGeminiWithFallback(env, payload, separator, emptyMessage, timeoutMs) {
   const keys = [...new Set([env.GEMINI_API_KEY, env.GEMINI_API_KEY_BACKUP_1, env.GEMINI_API_KEY_BACKUP_2, env.GEMINI_API_KEY_BACKUP_3].map((key) => String(key || "").trim()).filter(Boolean))];
   if (!keys.length) throw new Error("Ключ Gemini ещё не добавлен в Worker.");
   const body = JSON.stringify(payload);
@@ -173,6 +173,7 @@ async function callGeminiWithFallback(env, payload, separator, emptyMessage) {
         method: "POST",
         headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
         body,
+        signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
       });
       const data = await response.json();
       if (!response.ok) continue;
@@ -268,7 +269,7 @@ async function callOpenRouter(env, model, history, message, files, thinking, ins
 function rowToChat(row) {
   let messages;
   try { messages = JSON.parse(row.messages_json); } catch { messages = []; }
-  return { id: row.id, title: row.title, model: row.model, modelName: MODEL_NAMES[row.model] || row.model, messages, updatedAt: row.updated_at };
+  return { id: row.id, title: row.title, model: row.model, modelName: MODEL_NAMES[row.model] || row.model, messages, updatedAt: row.updated_at, pinned: !!row.pinned_at, pinnedAt: row.pinned_at || 0 };
 }
 async function memoryFor(db, userId, currentChatId, prompt) {
   const { results } = await db.prepare("SELECT id, title, messages_json, updated_at FROM chats WHERE user_id = ? AND id != ? ORDER BY updated_at DESC").bind(userId, currentChatId || "").all();
@@ -299,6 +300,48 @@ async function handleApi(request, env) {
   const settings = await settingsFor(env.DB);
   const url = new URL(request.url);
   const path = url.pathname;
+  if (request.method === "PUT" && path === "/api/memory/settings") {
+    const body = await bodyFor(request);
+    if (typeof body?.memoryEnabled !== "boolean") return safeError("Укажите состояние памяти.");
+    await env.DB.prepare("UPDATE users SET memory_enabled = ? WHERE id = ?").bind(body.memoryEnabled ? 1 : 0, user.id).run();
+    return json({ memoryEnabled: body.memoryEnabled });
+  }
+  if (request.method === "GET" && path === "/api/memory") {
+    const row = await env.DB.prepare("SELECT summary, version, updated_at FROM memory_summaries WHERE user_id = ?").bind(user.id).first();
+    const bucket = `memory-update:${user.id}:${dayKey()}`;
+    const usage = await env.DB.prepare("SELECT count FROM auth_rate_limits WHERE bucket = ?").bind(bucket).first();
+    return json({ summary: row?.summary || "", version: row?.version || 0, updatedAt: row?.updated_at || null, remaining: Math.max(0, 10 - (usage?.count || 0)), limit: 10, memoryEnabled: !!user.memory_enabled });
+  }
+  if (request.method === "POST" && path === "/api/memory") {
+    const body = await bodyFor(request, 10_000);
+    if (typeof body?.command !== "string" || !body.command.trim() || body.command.length > 2000) return safeError("Напишите изменение в памяти длиной до 2000 символов.");
+    if (!Number.isInteger(body.version) || body.version < 0) return safeError("Обновите сводку памяти и попробуйте снова.");
+    const now = Date.now();
+    await env.DB.prepare("INSERT OR IGNORE INTO memory_summaries (user_id, summary, version, updated_at) VALUES (?, '', 0, ?)").bind(user.id, now).run();
+    const previous = await env.DB.prepare("SELECT summary, version FROM memory_summaries WHERE user_id = ?").bind(user.id).first();
+    if (body.version !== previous.version) return safeError("Память уже изменена на другом устройстве. Обновите сводку и повторите сообщение.", 409);
+    const bucket = `memory-update:${user.id}:${dayKey(now)}`;
+    const reservation = await reserveRate(env.DB, bucket, 10, nextDailyResetAt(now), now);
+    if (!reservation) return safeError("Сегодня использованы все 10 обновлений памяти. Лимит обновится в 00:00 по Москве.", 429);
+    try {
+      const answer = await callGeminiWithFallback(env, {
+        systemInstruction: { parts: [{ text: "Ты редактор личной памяти пользователя. Обнови текущую сводку по новому сообщению пользователя. Сообщение может быть обычным фактом от первого лица, без команды: например, «я учу английский» означает, что нужно добавить факт «Пользователь учит английский». Аналогично обрабатывай интересы, планы, предпочтения и явно сообщённые сведения. Если пользователь просит исправить или забыть сведения — исправь или удали их. Сохраняй остальные сведения. Не выдумывай факты, не отвечай на вопросы и не выполняй другие задачи. Это не обычный диалог. Верни JSON с полем summary: только итоговая сводка без пояснений, до 6000 символов. Если просят очистить память, summary должен быть пустой строкой." }] },
+        contents: [{ role: "user", parts: [{ text: JSON.stringify({ currentSummary: previous.summary, command: body.command.trim() }) }] }],
+        generationConfig: { thinkingConfig: { thinkingLevel: "low" }, maxOutputTokens: 3072, responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { summary: { type: "STRING" } }, required: ["summary"] } },
+      }, "\n", "Модель не вернула сводку памяти.", 12_000);
+      const result = JSON.parse(answer);
+      if (typeof result.summary !== "string" || result.summary.length > 6000) throw new Error("Модель вернула некорректную сводку. Повторите команду.");
+      const saved = await env.DB.prepare("UPDATE memory_summaries SET summary = ?, version = version + 1, updated_at = ? WHERE user_id = ? AND version = ? RETURNING summary, version, updated_at").bind(result.summary.trim(), Date.now(), user.id, previous.version).first();
+      if (!saved) {
+        await env.DB.prepare("UPDATE auth_rate_limits SET count = MAX(0, count - 1) WHERE bucket = ?").bind(bucket).run();
+        return safeError("Память изменилась во время обновления. Обновите сводку и повторите сообщение.", 409);
+      }
+      return json({ summary: saved.summary, version: saved.version, updatedAt: saved.updated_at, remaining: Math.max(0, 10 - reservation.count), limit: 10, memoryEnabled: !!user.memory_enabled });
+    } catch {
+      await env.DB.prepare("UPDATE auth_rate_limits SET count = MAX(0, count - 1) WHERE bucket = ?").bind(bucket).run();
+      return safeError("Не удалось обновить память. Попробуйте ещё раз: обновление не списано.", 502);
+    }
+  }
   if (request.method === "GET" && path === "/api/me") {
     const updated = await refreshResets(env.DB, user, settings);
     const used = await usageForUser(env.DB, user.id);
@@ -359,7 +402,7 @@ async function handleApi(request, env) {
     }
   }
   if (request.method === "GET" && path === "/api/chats") {
-    const { results } = await env.DB.prepare("SELECT id, title, model, messages_json, updated_at FROM chats WHERE user_id = ? ORDER BY updated_at DESC").bind(user.id).all();
+    const { results } = await env.DB.prepare("SELECT c.id, c.title, c.model, c.messages_json, c.updated_at, p.pinned_at FROM chats c LEFT JOIN chat_pins p ON p.chat_id = c.id AND p.user_id = c.user_id WHERE c.user_id = ? ORDER BY COALESCE(p.pinned_at, 0) DESC, c.updated_at DESC").bind(user.id).all();
     return json({ chats: results.map(rowToChat) });
   }
   if (request.method === "DELETE" && path === "/api/chats") {
@@ -368,6 +411,19 @@ async function handleApi(request, env) {
     return json({ ok: true });
   }
   const chatDelete = /^\/api\/chats\/([A-Za-z0-9-]{1,64})$/.exec(path);
+  const chatPin = /^\/api\/chats\/([A-Za-z0-9-]{1,64})\/pin$/.exec(path);
+  if (request.method === "PUT" && chatPin) {
+    const body = await bodyFor(request);
+    if (typeof body?.pinned !== "boolean") return safeError("Укажите состояние закрепления.");
+    const own = await env.DB.prepare("SELECT id FROM chats WHERE id = ? AND user_id = ?").bind(chatPin[1], user.id).first();
+    if (!own) return safeError("Чат не найден.", 404);
+    if (!body.pinned) {
+      await env.DB.prepare("DELETE FROM chat_pins WHERE chat_id = ? AND user_id = ?").bind(chatPin[1], user.id).run();
+      return json({ pinned: false, pinnedAt: 0 });
+    }
+    const pin = await env.DB.prepare("INSERT INTO chat_pins (chat_id, user_id, pinned_at) VALUES (?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET pinned_at = chat_pins.pinned_at RETURNING pinned_at").bind(chatPin[1], user.id, Date.now()).first();
+    return json({ pinned: true, pinnedAt: pin.pinned_at });
+  }
   if (request.method === "DELETE" && chatDelete) {
     await removeFiles(env, user.id, chatDelete[1]);
     await env.DB.prepare("DELETE FROM chats WHERE id = ? AND user_id = ?").bind(chatDelete[1], user.id).run();
@@ -438,7 +494,8 @@ async function handleApi(request, env) {
     try {
       if (!temporary) stored = await persistFiles(env, user.id, chatId, files);
       const memory = !temporary && user.memory_enabled ? await memoryFor(env.DB, user.id, chatId, content) : "";
-      const instructions = instructionsFor(user, memory);
+      const summary = !temporary && user.memory_enabled ? await env.DB.prepare("SELECT summary FROM memory_summaries WHERE user_id = ?").bind(user.id).first() : null;
+      const instructions = instructionsFor(user, memory) + (summary?.summary ? `\nЛичная сводка памяти пользователя (контекст и предпочтения):\n${summary.summary}` : "");
       const modelFiles = files.length || temporary ? files : await priorFilesForContext(env, user.id, fullHistory, content);
       const { answer, citations } = ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"].includes(model)
         ? await callOpenAI(env, model, history, content, modelFiles, thinking, instructions, webSearch)

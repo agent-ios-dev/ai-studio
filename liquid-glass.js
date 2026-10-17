@@ -1,7 +1,7 @@
 import "./vendor/liquid-web/lg-component.js";
 
 // Keep the original form controls and dialog semantics outside the decorative glass.
-const surfaces = document.querySelectorAll(".composer, .model-menu, .settings-dialog:not(#settingsDialog), .search-dialog, .topbar .mobile-menu, .topbar .top-new-chat, .settings-close, .settings-switch-thumb");
+const surfaces = document.querySelectorAll(".composer, .model-menu, .settings-dialog:not(#settingsDialog):not(#memoryDialog), .search-dialog, .topbar .mobile-menu, .topbar .top-new-chat, .settings-close, .settings-switch-thumb");
 for (const surface of surfaces) {
   surface.classList.add("liquid-surface");
   const glass = document.createElement("liquid-glass");

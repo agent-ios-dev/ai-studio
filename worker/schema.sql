@@ -122,3 +122,16 @@ CREATE TABLE IF NOT EXISTS telegram_challenges (
   expires_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_telegram_challenges_expiry ON telegram_challenges(expires_at);
+
+CREATE TABLE IF NOT EXISTS chat_pins (
+  chat_id TEXT PRIMARY KEY REFERENCES chats(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  pinned_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_pins_user ON chat_pins(user_id, pinned_at DESC);
+CREATE TABLE IF NOT EXISTS memory_summaries (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  summary TEXT NOT NULL DEFAULT '',
+  version INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+);

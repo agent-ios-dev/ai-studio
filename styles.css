@@ -102,7 +102,7 @@
 @media(forced-colors:active){.composer textarea,.composer textarea::placeholder,.composer .attach-button,.composer .voice-button,.composer .thinking-picker,.composer .thinking-picker select,.composer .web-search-toggle,.composer-area .disclaimer{color:CanvasText}.composer .send-button{background:ButtonFace;color:ButtonText}}
 
 /* Settings page follows the supplied 320px and 884px Figma frames. */
-#settingsDialog.settings-page{position:fixed;inset:0;width:100%;max-width:none;height:100dvh;max-height:100dvh;margin:0;padding:0;border:0;border-radius:0;background:#fff;box-shadow:none;color:#080808;overflow:hidden}
+#settingsDialog.settings-page,#memoryDialog.settings-page{position:fixed;inset:0;width:100%;max-width:none;height:100dvh;max-height:100dvh;margin:0;padding:0;border:0;border-radius:0;background:#fff;box-shadow:none;color:#080808;overflow:hidden}
 .settings-page-header{position:absolute;inset:0 0 auto;height:81px;margin:0;padding:0;display:flex;justify-content:center;align-items:flex-start;background:linear-gradient(180deg,#0003,transparent);z-index:2;pointer-events:none}
 .settings-page-header h2{font-size:20px;font-weight:400;line-height:40px;margin:13px 56px 0;pointer-events:auto}
 .settings-page-header .settings-close{position:absolute;right:13px;top:13px;width:40px;height:40px;border-radius:50%;background:transparent;color:#000;pointer-events:auto}
@@ -155,3 +155,36 @@
   .settings-page-content .settings-danger{height:48px;font-size:17px;margin-bottom:12px}
   .settings-save-status{font-size:12px;margin-top:16px}
 }
+
+.chat-group-heading{font-size:11px;font-weight:600;color:#737373;padding:12px 9px 5px}
+.chat-pin{border:0;background:transparent;color:#656565;width:25px;height:27px;padding:4px;flex:none;border-radius:6px;opacity:0;display:grid;place-items:center}
+.chat-pin svg{width:16px;height:16px}
+.chat-item:hover .chat-pin,.chat-item:focus-within .chat-pin,.chat-pin.pinned{opacity:1}
+.chat-pin.pinned{color:#252525}
+.chat-pin.pinned svg{fill:#2525251a}
+.chat-pin:hover{background:#dcdcdc}
+.chat-pin:disabled{cursor:wait}
+.chat-item:focus-within .chat-delete{display:grid}
+.memory-settings-button{border:0;background:transparent;color:#315b94;text-decoration:underline;text-underline-offset:3px;display:block;font-size:14px;margin:-3px 0 20px;padding:0;cursor:pointer}
+@media(hover:none){.chat-pin{opacity:1}}
+
+/* Memory page follows the supplied desktop and phone frames. */
+.memory-page-scroll{height:100%;overflow-y:auto;overscroll-behavior:contain;padding:73px 12px max(20px,env(safe-area-inset-bottom))}
+.memory-page-content{width:296px;max-width:100%;margin:0 auto;display:flex;flex-direction:column;font-size:16px}
+.memory-page .settings-memory-row{margin:0;min-height:28px;flex:none}
+.memory-page .settings-switch{margin-right:0}
+.memory-summary-label{font-size:14px;line-height:18px;margin:6px 9px 8px;flex:none}
+.memory-page #memorySummary{height:366px;max-height:none;min-height:140px;flex:none;margin:0;padding:9px 10px;border:0;border-radius:14px;background:#d9d9d9;font-size:13px;line-height:1.6;color:#111}
+.memory-entry-form{display:flex;align-items:center;gap:6px;width:100%;min-height:46px;flex:none;margin-top:14px;padding:6px 7px 6px 14px;background:#f6f4f4;border-radius:28px}
+.memory-entry-form textarea{display:block;width:100%;min-width:0;min-height:32px;height:32px;max-height:96px;resize:none;border:0;outline:0;background:transparent;color:#111;font-size:13px;line-height:20px;padding:6px 0;font-family:inherit}
+.memory-entry-form textarea::placeholder{color:#777;opacity:1;font-size:13px}
+.memory-entry-form button{width:31px;height:31px;flex:none;padding:0;display:grid;place-items:center;border:0;border-radius:50%;background:#000;color:#fff}
+.memory-entry-form button svg{width:25px;height:25px;stroke-width:3}
+.memory-entry-form button:disabled{background:#626262;cursor:default}
+.memory-entry-form .memory-updating svg{animation:pulse 1s ease-in-out infinite alternate}
+.memory-entry-form:focus-within{outline:2px solid #8fa7c6;outline-offset:2px}
+.memory-page-error{font-size:12px;line-height:1.5;color:#9d2626;margin:10px 0 0;white-space:normal}
+.memory-page #refreshMemoryButton{margin-top:10px;font-size:12px}
+@media(max-width:760px){.memory-page-scroll{padding:71px 12px max(11px,env(safe-area-inset-bottom))}.memory-page-content{width:100%;height:calc(100dvh - 82px - env(safe-area-inset-bottom));min-height:320px}.memory-page #memorySummary{flex:1;height:auto}.memory-entry-form textarea{font-size:16px}.memory-page .settings-switch{width:64px;height:28px}.memory-page .settings-switch-thumb{width:38px;height:24px}.memory-page .settings-switch input:checked+.settings-switch-track .settings-switch-thumb{transform:translateX(22px)}}
+@media(prefers-reduced-motion:reduce){.memory-entry-form .memory-updating svg{animation:none}}
+@media(forced-colors:active){.memory-page #memorySummary,.memory-entry-form{background:Canvas;color:CanvasText;border:1px solid CanvasText}.memory-entry-form button{background:ButtonFace;color:ButtonText}.memory-entry-form textarea{color:CanvasText}}

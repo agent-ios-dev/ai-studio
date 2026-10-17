@@ -18,6 +18,7 @@ function database() {
   `);
   sqlite.exec(readFileSync(new URL("./migrations/003_email_auth.sql", import.meta.url), "utf8"));
   sqlite.exec(readFileSync(new URL("./migrations/004_telegram_auth.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("./migrations/005_pins_memory.sql", import.meta.url), "utf8"));
   return {
     sqlite,
     async batch(statements) {
@@ -60,6 +61,137 @@ const TOKEN_A = "a".repeat(43);
 const TOKEN_B = "b".repeat(43);
 const env = (db) => ({ DB: db, ALLOWED_ORIGIN: "https://site.example.test", ROUTER_CHEAP_API_KEY: "test-router-cheap", GEMINI_API_KEY: "test-gemini", OPENROUTER_API_KEY: "test-openrouter" });
 const emailEnv = (db) => ({ ...env(db), EMAIL_AUTH_ENABLED: "true", EMAIL_AUTH_SECRET: "test-hmac-secret", RESEND_API_KEY: "test-resend", RESEND_FROM: "AI Studio <login@example.test>" });
+
+test("pinned chats persist, sort first, remain private and can be unpinned", async context => {
+  const db = database();
+  context.after(() => db.sqlite.close());
+  setupUser(db, "pin-owner", TOKEN_A);
+  setupUser(db, "other-owner", TOKEN_B);
+  const insert = db.sqlite.prepare("INSERT INTO chats VALUES (?, ?, ?, 'gemini-3.8-flash', '[]', ?)");
+  insert.run("older", "pin-owner", "Older chat", 100);
+  insert.run("newer", "pin-owner", "Newer chat", 200);
+  const environment = env(db);
+  const pin = () => worker.fetch(makeRequest("/api/chats/older/pin", TOKEN_A, "PUT", { pinned: true }), environment);
+  const first = await (await pin()).json();
+  assert.equal(first.pinned, true);
+  assert.deepEqual(await (await pin()).json(), first);
+  assert.equal((await worker.fetch(makeRequest("/api/chats/older/pin", TOKEN_B, "PUT", { pinned: true }), environment)).status, 404);
+  const chats = (await (await worker.fetch(makeRequest("/api/chats", TOKEN_A), environment)).json()).chats;
+  assert.deepEqual(chats.map(c => c.id), ["older", "newer"]);
+  assert.equal(chats[0].pinned, true);
+  assert.equal((await (await worker.fetch(makeRequest("/api/chats", TOKEN_B), environment)).json()).chats.length, 0);
+  await worker.fetch(makeRequest("/api/chats/older/pin", TOKEN_A, "PUT", { pinned: false }), environment);
+  assert.deepEqual((await (await worker.fetch(makeRequest("/api/chats", TOKEN_A), environment)).json()).chats.map(c => c.id), ["newer", "older"]);
+});
+
+test("AI memory updates a separate private summary without creating chats or spending chat quota", async context => {
+  const db = database();
+  setupUser(db, "memory-owner", TOKEN_A);
+  setupUser(db, "memory-other", TOKEN_B);
+  const originalFetch = globalThis.fetch;
+  const received = [];
+  globalThis.fetch = async (_url, options) => {
+    const body = JSON.parse(options.body);
+    received.push(body);
+    return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({ summary: "Изучает английский язык." }) }] } }] });
+  };
+  context.after(() => { globalThis.fetch = originalFetch; db.sqlite.close(); });
+  const environment = env(db);
+  const updated = await worker.fetch(makeRequest("/api/memory", TOKEN_A, "POST", { command: "я учу английский", version: 0 }), environment);
+  assert.equal(updated.status, 200);
+  const memory = await updated.json();
+  assert.equal(memory.version, 1);
+  assert.equal(memory.remaining, 9);
+  assert.match(memory.summary, /английский/);
+  assert.match(received[0].contents[0].parts[0].text, /я учу английский/);
+  assert.match(received[0].systemInstruction.parts[0].text, /без команды/);
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM chats").get().n, 0);
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM usage").get().n, 0);
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM smart_usage").get().n, 0);
+  assert.equal((await (await worker.fetch(makeRequest("/api/memory", TOKEN_B), environment)).json()).summary, "");
+  assert.equal((await (await worker.fetch(makeRequest("/api/memory", TOKEN_A), environment)).json()).summary, memory.summary);
+  await worker.fetch(makeRequest("/api/chats", TOKEN_A, "DELETE"), environment);
+  assert.equal((await (await worker.fetch(makeRequest("/api/memory", TOKEN_A), environment)).json()).summary, memory.summary);
+  const stale = await worker.fetch(makeRequest("/api/memory", TOKEN_A, "POST", { command: "Удали всё", version: 0 }), environment);
+  assert.equal(stale.status, 409);
+  assert.equal(received.length, 1);
+});
+
+test("memory summary enters normal model context only with memory enabled, never temporary chats", async context => {
+  const db = database();
+  setupUser(db, "context-owner", TOKEN_A);
+  db.sqlite.prepare("INSERT INTO memory_summaries VALUES (?, ?, 1, ?)").run("context-owner", "SECRET_MEMORY_FACT", Date.now());
+  const originalFetch = globalThis.fetch;
+  const contexts = [];
+  globalThis.fetch = async (_url, options) => { contexts.push(JSON.parse(options.body).systemInstruction.parts[0].text); return Response.json({ candidates: [{ content: { parts: [{ text: "Ответ" }] } }] }); };
+  context.after(() => { globalThis.fetch = originalFetch; db.sqlite.close(); });
+  const chat = temporary => worker.fetch(makeRequest("/api/chat", TOKEN_A, "POST", { temporary, model: "gemini-3.8-flash", thinking: "low", content: "Привет", files: [], history: [] }), env(db));
+  assert.equal((await chat(false)).status, 200);
+  assert.match(contexts[0], /SECRET_MEMORY_FACT/);
+  assert.equal((await chat(true)).status, 200);
+  assert.ok(!contexts[1].includes("SECRET_MEMORY_FACT"));
+  db.sqlite.exec("UPDATE users SET memory_enabled = 0");
+  assert.equal((await chat(false)).status, 200);
+  assert.ok(!contexts[2].includes("SECRET_MEMORY_FACT"));
+});
+
+test("memory page toggle updates only the owner's memory setting and preserves profile and summary", async context => {
+  const db = database();
+  context.after(() => db.sqlite.close());
+  setupUser(db, "toggle-owner", TOKEN_A);
+  setupUser(db, "toggle-other", TOKEN_B);
+  db.sqlite.exec("UPDATE users SET display_name = 'Saved name', about_text = 'Saved about'");
+  db.sqlite.prepare("INSERT INTO memory_summaries VALUES (?, 'Saved summary', 2, ?)").run("toggle-owner", Date.now());
+  const response = await worker.fetch(makeRequest("/api/memory/settings", TOKEN_A, "PUT", { memoryEnabled: false }), env(db));
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).memoryEnabled, false);
+  const profile = await (await worker.fetch(makeRequest("/api/profile", TOKEN_A), env(db))).json();
+  assert.equal(profile.displayName, "Saved name");
+  assert.equal(profile.aboutText, "Saved about");
+  assert.equal(profile.memoryEnabled, false);
+  assert.equal((await (await worker.fetch(makeRequest("/api/profile", TOKEN_B), env(db))).json()).memoryEnabled, true);
+  const summary = await (await worker.fetch(makeRequest("/api/memory", TOKEN_A), env(db))).json();
+  assert.equal(summary.summary, "Saved summary");
+  assert.equal(summary.version, 2);
+  assert.equal((await worker.fetch(makeRequest("/api/memory/settings", TOKEN_A, "PUT", { memoryEnabled: "true" }), env(db))).status, 400);
+});
+
+test("memory updates have a separate daily cap, failed updates are refunded, and clearing works", async context => {
+  const db = database();
+  setupUser(db, "memory-limits", TOKEN_A);
+  const originalFetch = globalThis.fetch;
+  let bad = true;
+  globalThis.fetch = async () => Response.json({ candidates: [{ content: { parts: [{ text: bad ? "invalid JSON" : JSON.stringify({ summary: "" }) }] } }] });
+  context.after(() => { globalThis.fetch = originalFetch; db.sqlite.close(); });
+  const update = version => worker.fetch(makeRequest("/api/memory", TOKEN_A, "POST", { command: "Очисти всю память", version }), env(db));
+  assert.equal((await update(0)).status, 502);
+  assert.equal((await (await worker.fetch(makeRequest("/api/memory", TOKEN_A), env(db))).json()).remaining, 10);
+  bad = false;
+  for (let version = 0; version < 10; version++) {
+    const r = await update(version);
+    assert.equal(r.status, 200);
+    assert.equal((await r.json()).summary, "");
+  }
+  assert.equal((await update(10)).status, 429);
+  const me = await (await worker.fetch(makeRequest("/api/me", TOKEN_A), env(db))).json();
+  assert.equal(me.remaining, 30);
+  assert.equal(me.smartRemaining, 5);
+});
+
+test("concurrent memory updates cannot overwrite another version", async context => {
+  const db = database();
+  setupUser(db, "memory-race", TOKEN_A);
+  db.sqlite.prepare("INSERT INTO memory_summaries VALUES (?, 'old', 0, ?)").run("memory-race", Date.now());
+  const originalFetch = globalThis.fetch;
+  let complete;
+  const wait = new Promise(resolve => { complete = resolve; });
+  let calls = 0;
+  globalThis.fetch = async () => { if (++calls === 2) complete(); await wait; return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({ summary: "new" }) }] } }] }); };
+  context.after(() => { globalThis.fetch = originalFetch; db.sqlite.close(); });
+  const results = await Promise.all([1, 2].map(() => worker.fetch(makeRequest("/api/memory", TOKEN_A, "POST", { command: "Обнови", version: 0 }), env(db))));
+  assert.deepEqual(results.map(r => r.status).sort(), [200, 409]);
+  assert.equal((await (await worker.fetch(makeRequest("/api/memory", TOKEN_A), env(db))).json()).remaining, 9);
+});
 const telegramEnv = db => ({ ...env(db), TELEGRAM_AUTH_ENABLED: "true", TELEGRAM_CLIENT_ID: "8890017118" });
 const telegramKey = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]);
 async function mockTelegram(context) {

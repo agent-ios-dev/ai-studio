@@ -238,7 +238,17 @@ function renderWebSearch() {
 function renderList() {
   const list = $("chatList");
   list.replaceChildren();
-  for (const chat of [...state.chats].sort((a,b) => b.updatedAt - a.updatedAt)) {
+  const chats = [...state.chats].sort((a,b) => Number(!!b.pinned) - Number(!!a.pinned) || (b.pinnedAt || 0) - (a.pinnedAt || 0) || b.updatedAt - a.updatedAt);
+  let group = "";
+  for (const chat of chats) {
+    const nextGroup = chat.pinned ? "Закреплённые" : "Все чаты";
+    if (nextGroup !== group) {
+      group = nextGroup;
+      const heading = document.createElement("div");
+      heading.className = "chat-group-heading";
+      heading.textContent = group;
+      list.append(heading);
+    }
     const item = document.createElement("div");
     item.className = `chat-item ${chat.id === state.currentId ? "active" : ""}`;
     item.tabIndex = 0;
@@ -253,10 +263,28 @@ function renderList() {
     remove.setAttribute("aria-label", `Удалить чат ${chat.title || "Новый чат"}`);
     remove.innerHTML = '<svg><use href="#i-trash"/></svg>';
     remove.addEventListener("click", (event) => { event.stopPropagation(); deleteChat(chat.id); });
-    item.append(title, remove);
+    const pin = document.createElement("button");
+    pin.type = "button";
+    pin.className = `chat-pin${chat.pinned ? " pinned" : ""}`;
+    pin.title = chat.pinned ? "Открепить чат" : "Закрепить чат";
+    pin.setAttribute("aria-label", `${pin.title} ${chat.title || "Новый чат"}`);
+    pin.setAttribute("aria-pressed", String(!!chat.pinned));
+    pin.innerHTML = '<svg><use href="#i-pin"/></svg>';
+    pin.addEventListener("click", async event => {
+      event.stopPropagation();
+      pin.disabled = true;
+      const token = state.token;
+      try {
+        const result = await api(`/api/chats/${encodeURIComponent(chat.id)}/pin`, { method: "PUT", body: JSON.stringify({ pinned: !chat.pinned }) });
+        if (state.token !== token) return;
+        Object.assign(chat, result);
+        renderList();
+      } catch (error) { showToast(error.message); pin.disabled = false; }
+    });
+    item.append(title, pin, remove);
     const open = () => { state.currentId = chat.id; state.model = chat.model; renderAll(); closeMobile(); };
     item.addEventListener("click", open);
-    item.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); } });
+    item.addEventListener("keydown", (event) => { if (event.target === item && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); open(); } });
     list.append(item);
   }
 }
@@ -718,6 +746,94 @@ $("modelTrigger").addEventListener("click", () => { if (!state.connected) { open
 $("thinkingSelect").addEventListener("change", () => { state.thinking[state.model] = $("thinkingSelect").value; localStorage.setItem("chat_thinking", JSON.stringify(state.thinking)); });
 $("webSearchToggle").addEventListener("click", () => { if (!supportsWebSearch(state.model)) return; state.webSearch = !state.webSearch; localStorage.setItem("chat_web_search", String(state.webSearch)); renderWebSearch(); });
 document.addEventListener("click", (event) => { if (!event.target.closest(".model-control")) { $("modelMenu").classList.add("hidden"); $("modelTrigger").setAttribute("aria-expanded", "false"); } });
+let memoryBusy = false;
+let memoryData = null;
+let memoryToggleBusy = false;
+let memoryReturnToSettings = false;
+function memoryError(text = "") { $("memoryError").textContent = text; $("memoryError").classList.toggle("hidden", !text); $("refreshMemoryButton").classList.toggle("hidden", !text); }
+function renderMemory() {
+  $("memorySummary").textContent = memoryData?.summary || (memoryData ? "Память пока пуста. Напишите, что нужно запомнить." : "Загружаем…");
+  $("memoryQuota").textContent = memoryData ? `Обновлений осталось: ${memoryData.remaining} из ${memoryData.limit}. Отдельный лимит, обычные запросы не расходуются. Сброс в 00:00 по Москве.` : "";
+  $("memoryEnabledNote").textContent = memoryData && !memoryData.memoryEnabled ? "Использование памяти отключено в настройках. Сводка сохраняется, но не передаётся в чаты." : "Сводка учитывается в обычных чатах при включённой памяти. Временные чаты её не используют.";
+  $("updateMemoryButton").disabled = memoryBusy || memoryToggleBusy || !memoryData || memoryData.remaining <= 0;
+  $("memoryCommandInput").disabled = memoryBusy || memoryToggleBusy;
+  $("refreshMemoryButton").disabled = memoryBusy || memoryToggleBusy;
+  $("updateMemoryButton").classList.toggle("memory-updating", memoryBusy);
+  $("updateMemoryButton").setAttribute("aria-label", memoryBusy ? "Обновляем память" : "Обновить память");
+  $("updateMemoryButton").title = memoryData ? `Обновить память · осталось ${memoryData.remaining} из ${memoryData.limit}` : "Обновить память";
+  $("memoryPageEnabledInput").disabled = memoryBusy || memoryToggleBusy || !memoryData;
+  $("memoryPageEnabledInput").checked = memoryData?.memoryEnabled ?? state.profile.memoryEnabled;
+}
+async function loadMemory() {
+  if (memoryBusy || memoryToggleBusy) return;
+  memoryBusy = true;
+  memoryData = null;
+  memoryError();
+  renderMemory();
+  const token = state.token;
+  try { const result = await api("/api/memory"); if (state.token === token) memoryData = result; }
+  catch (error) { memoryError(error.message); }
+  finally { memoryBusy = false; renderMemory(); }
+}
+async function openMemory() {
+  if (!state.connected) { openAuth(); return; }
+  if (memoryBusy || memoryToggleBusy) { showToast("Дождитесь обновления памяти"); return; }
+  memoryReturnToSettings = $("settingsDialog").open;
+  if (memoryReturnToSettings) { $("settingsDialog").close(); await settingsSaveChain; }
+  $("memoryCommandInput").value = "";
+  $("memoryStatus").textContent = "";
+  if (!$("memoryDialog").open) $("memoryDialog").showModal();
+  closeMobile();
+  await loadMemory();
+}
+$("memoryButton").addEventListener("click", openMemory);
+$("settingsMemoryButton").addEventListener("click", openMemory);
+$("refreshMemoryButton").addEventListener("click", loadMemory);
+$("memoryDialog").addEventListener("close", () => {
+  if (memoryReturnToSettings && state.connected) { memoryReturnToSettings = false; openSettings(); }
+});
+$("memoryPageEnabledInput").addEventListener("change", async () => {
+  if (memoryToggleBusy || !memoryData) return;
+  memoryToggleBusy = true;
+  const enabled = $("memoryPageEnabledInput").checked;
+  const previousEnabled = memoryData.memoryEnabled;
+  memoryData.memoryEnabled = enabled;
+  const token = state.token;
+  renderMemory();
+  memoryError();
+  try {
+    const result = await api("/api/memory/settings", { method: "PUT", body: JSON.stringify({ memoryEnabled: enabled }) });
+    if (state.token !== token) return;
+    memoryData.memoryEnabled = result.memoryEnabled;
+    state.profile.memoryEnabled = result.memoryEnabled;
+    $("memoryEnabledInput").checked = result.memoryEnabled;
+    $("memoryStatus").textContent = result.memoryEnabled ? "Память включена" : "Память выключена";
+  } catch (error) { memoryData.memoryEnabled = previousEnabled; memoryError(error.message); }
+  finally { memoryToggleBusy = false; renderMemory(); }
+});
+$("memoryCommandInput").addEventListener("keydown", event => {
+  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); $("memoryCommandForm").requestSubmit(); }
+});
+$("memoryCommandForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  if (memoryBusy || memoryToggleBusy || !memoryData) return;
+  const command = $("memoryCommandInput").value.trim();
+  if (!command) return;
+  memoryBusy = true;
+  const token = state.token;
+  memoryError();
+  $("memoryStatus").textContent = "Нейросеть обновляет сводку…";
+  renderMemory();
+  try {
+    const result = await api("/api/memory", { method: "POST", body: JSON.stringify({ command, version: memoryData.version }) });
+    if (state.token !== token) return;
+    memoryData = result;
+    $("memoryCommandInput").value = "";
+    $("memoryStatus").textContent = "Сводка памяти обновлена";
+  } catch (error) { memoryError(error.message); $("memoryStatus").textContent = ""; }
+  finally { memoryBusy = false; renderMemory(); }
+});
+
 $("settingsButton").addEventListener("click", openSettings);
 $("topNewChat").addEventListener("click", newChat);
 let settingsSaveTimer;
