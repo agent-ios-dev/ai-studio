@@ -188,3 +188,6 @@
 @media(max-width:760px){.memory-page-scroll{padding:71px 12px max(11px,env(safe-area-inset-bottom))}.memory-page-content{width:100%;height:calc(100dvh - 82px - env(safe-area-inset-bottom));min-height:320px}.memory-page #memorySummary{flex:1;height:auto}.memory-entry-form textarea{font-size:16px}.memory-page .settings-switch{width:64px;height:28px}.memory-page .settings-switch-thumb{width:38px;height:24px}.memory-page .settings-switch input:checked+.settings-switch-track .settings-switch-thumb{transform:translateX(22px)}}
 @media(prefers-reduced-motion:reduce){.memory-entry-form .memory-updating svg{animation:none}}
 @media(forced-colors:active){.memory-page #memorySummary,.memory-entry-form{background:Canvas;color:CanvasText;border:1px solid CanvasText}.memory-entry-form button{background:ButtonFace;color:ButtonText}.memory-entry-form textarea{color:CanvasText}}
+
+/* Original model logos keep their aspect ratio and brand colors. */
+.model-option-icon{background:transparent}.model-logo{display:block;object-fit:contain;flex:none}.model-option-icon .model-logo{width:24px;height:24px}.assistant-mark:has(.model-logo){border:0;background:transparent;border-radius:0}.assistant-mark .model-logo{width:23px;height:23px}

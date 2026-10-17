@@ -30,6 +30,7 @@ jobs:
           mkdir _site
           cp index.html admin.html styles.css admin.css app.js markdown.js liquid-glass.js admin.js favicon.svg _site/
           cp -r vendor _site/vendor
+          cp -r assets _site/assets
           python - <<'PY'
           import json, os
           from pathlib import Path

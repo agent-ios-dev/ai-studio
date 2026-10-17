@@ -8,6 +8,16 @@ const MODELS = [
   { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash", provider: "Google", description: "Быстрые ответы" },
   { id: "nemotron-3-ultra", name: "Nemotron 3 Ultra", provider: "NVIDIA", description: "Сложные задачи и рассуждения" },
 ];
+const MODEL_LOGOS = {
+  OpenAI: "./assets/model-logos/openai.png",
+  Google: "./assets/model-logos/gemini.png",
+  NVIDIA: "./assets/model-logos/nvidia.svg",
+};
+function modelLogo(modelId) {
+  const model = MODELS.find(entry => entry.id === modelId);
+  const source = MODEL_LOGOS[model?.provider];
+  return source ? `<img class="model-logo" src="${source}" alt="" aria-hidden="true" width="24" height="24">` : '<svg><use href="#i-spark"/></svg>';
+}
 
 const $ = (id) => document.getElementById(id);
 const initialApi = String(window.CHAT_API_URL || "").replace(/\/$/, "");
@@ -195,7 +205,7 @@ function renderModels() {
       option.disabled = !!model.disabled;
       option.setAttribute("role", "option");
       option.setAttribute("aria-selected", String(model.id === state.model));
-      option.innerHTML = `<span class="model-option-icon ${provider === "Google" ? "gemini" : ""}">${provider === "Google" ? "✦" : "◎"}</span><span class="model-option-copy"><strong></strong><small></small></span>${model.id === state.model ? '<svg class="check"><use href="#i-check"/></svg>' : ""}`;
+      option.innerHTML = `<span class="model-option-icon">${modelLogo(model.id)}</span><span class="model-option-copy"><strong></strong><small></small></span>${model.id === state.model ? '<svg class="check"><use href="#i-check"/></svg>' : ""}`;
       option.querySelector("strong").textContent = model.name;
       option.querySelector("small").textContent = model.description;
       option.addEventListener("click", () => {
@@ -319,13 +329,13 @@ function renderAssistantAnswer(bubble, message) {
     bubble.append(sources);
   }
 }
-function messageElement(message, modelName) {
+function messageElement(message, modelName, modelId) {
   const row = document.createElement("article");
   row.className = `message ${message.role}`;
   if (message.role === "assistant") {
     const header = document.createElement("div");
     header.className = "message-header";
-    header.innerHTML = '<span class="assistant-mark"><svg><use href="#i-spark"/></svg></span><span></span>';
+    header.innerHTML = `<span class="assistant-mark">${modelLogo(modelId)}</span><span></span>`;
     header.lastElementChild.textContent = modelName || selectedModel().name;
     row.append(header);
   }
@@ -376,11 +386,11 @@ function renderMessages() {
   const container = $("messages");
   container.replaceChildren();
   if (!hasMessages) return;
-  for (const message of chat.messages) container.append(messageElement(message, chat.modelName));
+  for (const message of chat.messages) container.append(messageElement(message, chat.modelName, chat.model));
   if (state.busy) {
     const pending = document.createElement("article");
     pending.className = "message assistant";
-    pending.innerHTML = '<div class="message-header"><span class="assistant-mark"><svg><use href="#i-spark"/></svg></span><span>Готовлю ответ</span></div><div class="thinking"><span></span><span></span><span></span></div>';
+    pending.innerHTML = `<div class="message-header"><span class="assistant-mark">${modelLogo(chat.model)}</span><span>Готовлю ответ</span></div><div class="thinking"><span></span><span></span><span></span></div>`;
     container.append(pending);
   }
   requestAnimationFrame(() => { $("conversation").scrollTop = $("conversation").scrollHeight; });
