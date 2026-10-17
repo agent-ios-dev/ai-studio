@@ -8,11 +8,12 @@ const MAX_VOICE_BYTES = 3 * 1024 * 1024;
 const MOSCOW_DATE = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Moscow", year: "numeric", month: "2-digit", day: "2-digit" });
 const OPENROUTER_MODELS = { "nemotron-3-ultra": "nvidia/nemotron-3-ultra-550b-a55b:free" };
 const SEARCH_MODELS = new Set(["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"]);
-const ALLOWED_MODELS = new Set(["gpt-6-luna", "gpt-6-sol", "gpt-6-astra", "gemini-3.8-flash", ...Object.keys(OPENROUTER_MODELS)]);
+const GEMINI_MODELS = new Set(["gemini-3.8-flash", "gemini-3.5-flash-lite"]);
+const ALLOWED_MODELS = new Set(["gpt-6-luna", "gpt-6-sol", "gpt-6-astra", ...GEMINI_MODELS, ...Object.keys(OPENROUTER_MODELS)]);
 const DEFAULT_MODEL = "gemini-3.8-flash";
 function modelEnabled(_env, model) { return ALLOWED_MODELS.has(model); }
-const THINKING = { "gpt-6-luna": new Set(["none", "low", "medium", "high", "xhigh", "max"]), "gpt-6-sol": new Set(["low", "medium", "high"]), "gpt-6-astra": new Set(["low", "medium", "high"]), "gemini-3.8-flash": new Set(["low", "medium", "high"]), "nemotron-3-ultra": new Set(["low", "medium", "high"]) };
-const MODEL_NAMES = { "gpt-6-luna": "GPT-6 Luna", "gpt-6-sol": "GPT-6 Sol", "gemini-3.8-flash": "Gemini 3.8 Flash", "nemotron-3-ultra": "Nemotron 3 Ultra", "qwen3.8-27b": "Qwen3.8 27B", "gpt-6-astra": "GPT-6 Astra", "claude-opus-5": "Claude Opus 5" };
+const THINKING = { "gpt-6-luna": new Set(["none", "low", "medium", "high", "xhigh", "max"]), "gpt-6-sol": new Set(["low", "medium", "high"]), "gpt-6-astra": new Set(["low", "medium", "high"]), "gemini-3.8-flash": new Set(["low", "medium", "high"]), "gemini-3.5-flash-lite": new Set(["minimal", "medium", "high"]), "nemotron-3-ultra": new Set(["low", "medium", "high"]) };
+const MODEL_NAMES = { "gpt-6-luna": "GPT-6 Luna", "gpt-6-sol": "GPT-6 Sol", "gemini-3.8-flash": "Gemini 3.8 Flash", "gemini-3.5-flash-lite": "Gemini 3.5 Flash Lite", "nemotron-3-ultra": "Nemotron 3 Ultra", "qwen3.8-27b": "Qwen3.8 27B", "gpt-6-astra": "GPT-6 Astra", "claude-opus-5": "Claude Opus 5" };
 const OPENAI_FILE_EXTENSIONS = new Set(["pdf", "txt", "md", "json", "csv", "html", "xml", "js", "ts", "py", "css", "doc", "docx", "rtf", "odt", "ppt", "pptx", "xls", "xlsx"]);
 const GEMINI_MEDIA_TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp", "image/heic", "image/heif", "audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/mp4", "audio/ogg", "audio/flac", "video/mp4", "video/webm", "video/quicktime"]);
 
@@ -59,7 +60,7 @@ function validateFiles(files, model) {
     if (!file || typeof file.name !== "string" || typeof file.data !== "string" || typeof file.type !== "string" || !Number.isInteger(file.size) || file.size < 0 || file.size > MAX_FILE_BYTES || file.data.length > Math.ceil(MAX_FILE_BYTES * 4 / 3) + 8) throw new Error("Файл повреждён или превышает 5 МБ.");
     const ext = file.name.split(".").pop().toLowerCase();
     if (["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"].includes(model) && !file.type.startsWith("image/") && !OPENAI_FILE_EXTENSIONS.has(ext)) throw new Error(`${MODEL_NAMES[model]} не поддерживает файл «${file.name}».`);
-    if (model === "gemini-3.8-flash" && !GEMINI_MEDIA_TYPES.has(file.type) && !isTextFile(file)) throw new Error(`Gemini 3.8 Flash не поддерживает файл «${file.name}».`);
+    if (GEMINI_MODELS.has(model) && !GEMINI_MEDIA_TYPES.has(file.type) && !isTextFile(file)) throw new Error(`${MODEL_NAMES[model]} не поддерживает файл «${file.name}».`);
     if (model === "nemotron-3-ultra" && !isTextFile(file)) throw new Error(`Nemotron 3 Ultra поддерживает только текстовые файлы: «${file.name}».`);
   }
 }
@@ -141,13 +142,13 @@ async function refreshResets(db, user, settings) {
   return user;
 }
 function nextGrantAt(user, settings) { return user.reset_balance >= settings.reset_cap ? null : user.reset_last_grant_at + settings.reset_interval_days * DAY_MS; }
-async function callGeminiWithFallback(env, payload, separator, emptyMessage, timeoutMs, accounting) {
+async function callGeminiWithFallback(env, payload, separator, emptyMessage, timeoutMs, accounting, model = DEFAULT_MODEL) {
   const keys = [...new Set([env.GEMINI_API_KEY, env.GEMINI_API_KEY_BACKUP_1, env.GEMINI_API_KEY_BACKUP_2, env.GEMINI_API_KEY_BACKUP_3].map((key) => String(key || "").trim()).filter(Boolean))];
   if (!keys.length) throw new Error("Ключ Gemini ещё не добавлен в Worker.");
   const body = JSON.stringify(payload);
   for (const key of keys) {
     try {
-      const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent", {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
         method: "POST",
         headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
         body,
@@ -225,7 +226,7 @@ function geminiParts(message, files) {
 async function callGemini(env, history, message, files, thinking, instructions, options = {}) {
   const contents = history.slice(-24).map((entry) => ({ role: entry.role === "assistant" ? "model" : "user", parts: [{ text: entry.content || "(вложение)" }] }));
   contents.push({ role: "user", parts: geminiParts(message, files) });
-  return callGeminiWithFallback(env, { contents, systemInstruction: { parts: [{ text: instructions }] }, generationConfig: { thinkingConfig: { thinkingLevel: thinking }, maxOutputTokens: options.maxOutputTokens || 8192 } }, "\n", "Модель не вернула текстовый ответ. Попробуйте ещё раз.", 90_000, options.accounting);
+  return callGeminiWithFallback(env, { contents, systemInstruction: { parts: [{ text: instructions }] }, generationConfig: { thinkingConfig: { thinkingLevel: thinking }, maxOutputTokens: options.maxOutputTokens || 8192 } }, "\n", "Модель не вернула текстовый ответ. Попробуйте ещё раз.", 90_000, options.accounting, options.model || DEFAULT_MODEL);
 }
 async function callOpenRouter(env, model, history, message, files, thinking, instructions, options = {}) {
   if (!env.OPENROUTER_API_KEY) throw new Error("Ключ OpenRouter ещё не добавлен в Worker.");
@@ -487,7 +488,7 @@ async function handleApi(request, env) {
     let body;
     try { body = JSON.parse(raw); } catch { return safeError("Неверный формат запроса."); }
     const model = body.model;
-    const thinking = body.thinking || "medium";
+    const thinking = body.thinking || (model === "gemini-3.5-flash-lite" ? "minimal" : "medium");
     const webSearch = body.webSearch === true;
     const content = typeof body.content === "string" ? body.content.trim() : "";
     const files = body.files || [];
@@ -526,10 +527,10 @@ async function handleApi(request, env) {
       if (bound !== null && bound + 128 > reservation.amount) throw new Error("Недостаточно токенов для этого контекста. Сократите сообщение, начните новый чат или дождитесь сброса лимита.");
       if (reservation.amount < 256) throw new Error("Недостаточно токенов для нового ответа. Дождитесь сброса лимита.");
       const maxOutputTokens = Math.min(model === "nemotron-3-ultra" ? 4096 : 8192, Math.max(128, reservation.amount - (bound ?? Math.ceil(reservation.amount / 2))));
-      const providerOptions = { maxOutputTokens, accounting };
+      const providerOptions = { maxOutputTokens, accounting, model };
       let { answer, citations } = ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"].includes(model)
         ? await callOpenAI(env, model, history, content, modelFiles, thinking, instructions, webSearch, providerOptions)
-        : { answer: model === "gemini-3.8-flash" ? await callGemini(env, history, content, modelFiles, thinking, instructions, providerOptions) : await callOpenRouter(env, model, history, content, modelFiles, thinking, instructions, providerOptions), citations: [] };
+        : { answer: GEMINI_MODELS.has(model) ? await callGemini(env, history, content, modelFiles, thinking, instructions, providerOptions) : await callOpenRouter(env, model, history, content, modelFiles, thinking, instructions, providerOptions), citations: [] };
       const extracted = splitAutomaticMemory(answer, marker);
       answer = extracted.answer;
       if (!answer.trim()) throw new Error("Модель не вернула текстовый ответ. Попробуйте ещё раз.");

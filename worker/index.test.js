@@ -974,3 +974,26 @@ test("stale reservations settle once and late completions cannot charge a new re
   assert.equal(balance.used, 50000);
   assert.equal(balance.estimated, true);
 });
+
+test("Gemini 3.5 Flash Lite uses the official endpoint, backup keys, thinking, context and shared tokens", async context => {
+  const db=database();setupUser(db,"flash-lite",TOKEN_A);
+  const original=globalThis.fetch,seen=[];
+  const environment={...env(db),GEMINI_API_KEY:'primary-lite',GEMINI_API_KEY_BACKUP_1:'backup-lite'};
+  globalThis.fetch=async(url,options)=>{
+    assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent');
+    const key=options.headers['x-goog-api-key'];seen.push({key,body:JSON.parse(options.body)});
+    if(key==='primary-lite')return Response.json({error:{message:'Temporarily overloaded'}},{status:429});
+    return Response.json({candidates:[{content:{parts:[{text:'Ответ Lite'}]}}],usageMetadata:{promptTokenCount:100,candidatesTokenCount:14,thoughtsTokenCount:200,totalTokenCount:314}});
+  };
+  context.after(()=>{globalThis.fetch=original;db.sqlite.close();});
+  let used=0;
+  for(const thinking of [undefined,'medium','high']){
+    const response=await worker.fetch(makeRequest('/api/chat',TOKEN_A,'POST',{model:'gemini-3.5-flash-lite',temporary:true,thinking,content:'Прочитай файл',history:[{role:'user',content:'Меня зовут Юра'},{role:'assistant',content:'Привет, Юра'}],files:[{name:'note.txt',type:'text/plain',size:4,data:'dGVzdA=='}]}),environment);
+    assert.equal(response.status,200);const result=await response.json();used+=314;assert.equal(result.answer,'Ответ Lite');assert.equal(result.remaining,50000-used);
+    const sent=seen.at(-1).body;assert.equal(sent.generationConfig.thinkingConfig.thinkingLevel,thinking||'minimal');assert.equal(sent.contents[0].parts[0].text,'Меня зовут Юра');assert.match(sent.contents.at(-1).parts[1].text,/test/);
+  }
+  assert.deepEqual(seen.map(x=>x.key),['primary-lite','backup-lite','primary-lite','backup-lite','primary-lite','backup-lite']);
+  const profile=await worker.fetch(makeRequest('/api/profile',TOKEN_A,'PUT',{displayName:'Юра',defaultModel:'gemini-3.5-flash-lite',memoryEnabled:true}),environment);assert.equal((await profile.json()).defaultModel,'gemini-3.5-flash-lite');
+  for(const extra of [{thinking:'max'},{webSearch:true},{files:[{name:'file.zip',type:'application/zip',size:4,data:'dGVzdA=='}]}])assert.equal((await worker.fetch(makeRequest('/api/chat',TOKEN_A,'POST',{model:'gemini-3.5-flash-lite',temporary:true,content:'Привет',files:[],...extra}),environment)).status,400);
+  assert.equal(seen.length,6);
+});

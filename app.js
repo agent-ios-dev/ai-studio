@@ -6,6 +6,7 @@ const MODELS = [
   { id: "gpt-6-sol", name: "GPT-6 Sol", provider: "OpenAI", description: "Задачи и работа с кодом" },
   { id: "gpt-6-astra", name: "GPT-6 Astra", provider: "OpenAI", description: "Сложные задачи и рассуждения" },
   { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash", provider: "Google", description: "Быстрые ответы" },
+  { id: "gemini-3.5-flash-lite", name: "Gemini 3.5 Flash Lite", provider: "Google", description: "Лёгкая и быстрая модель" },
   { id: "nemotron-3-ultra", name: "Nemotron 3 Ultra", provider: "NVIDIA", description: "Сложные задачи и рассуждения" },
 ];
 const MODEL_LOGOS = {
@@ -55,7 +56,7 @@ function id() { return crypto.randomUUID(); }
 function currentChat() { return state.currentId === "temporary" ? state.tempChat : state.chats.find((chat) => chat.id === state.currentId) || null; }
 function selectedModel() { return MODELS.find((model) => model.id === state.model) || { id: state.model, name: `${currentChat()?.modelName || "Модель"} · недоступна` }; }
 function modelAvailable(id) { return MODELS.some((model) => model.id === id && !model.disabled); }
-function selectedThinking() { return state.thinking[state.model] || "medium"; }
+function selectedThinking() { return state.thinking[state.model] || (state.model === "gemini-3.5-flash-lite" ? "minimal" : "medium"); }
 function supportsWebSearch(model) { return ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"].includes(model); }
 function apiUrl(path) { return `${state.apiUrl}${path}`; }
 function showToast(message) {
@@ -224,7 +225,7 @@ function renderModels() {
 }
 function renderThinking() {
   const select = $("thinkingSelect");
-  const choices = state.model === "gpt-6-luna" ? [["none", "Без размышления"], ["low", "Быстро"], ["medium", "Стандартно"], ["high", "Глубоко"], ["xhigh", "Очень глубоко"], ["max", "Максимально"]] : [["low", "Быстро"], ["medium", "Стандартно"], ["high", "Глубоко"]];
+  const choices = state.model === "gpt-6-luna" ? [["none", "Без размышления"], ["low", "Быстро"], ["medium", "Стандартно"], ["high", "Глубоко"], ["xhigh", "Очень глубоко"], ["max", "Максимально"]] : state.model === "gemini-3.5-flash-lite" ? [["minimal", "Быстро"], ["medium", "Стандартно"], ["high", "Глубоко"]] : [["low", "Быстро"], ["medium", "Стандартно"], ["high", "Глубоко"]];
   select.replaceChildren();
   for (const [value, label] of choices) { const option = document.createElement("option"); option.value = value; option.textContent = label; select.append(option); }
   select.value = selectedThinking();
