@@ -192,4 +192,4 @@
 /* Original model logos keep their aspect ratio and brand colors. */
 .model-option-icon{background:transparent}.model-logo{display:block;object-fit:contain;flex:none}.model-option-icon .model-logo{width:24px;height:24px}.assistant-mark:has(.model-logo){border:0;background:transparent;border-radius:0}.assistant-mark .model-logo{width:23px;height:23px}
 
-.welcome-mark img{display:block;width:100%;height:100%;object-fit:contain;border-radius:9px}
+.welcome-mark{width:120px;height:120px}.welcome-mark img{display:block;width:100%;height:100%;object-fit:contain;border-radius:27px}
