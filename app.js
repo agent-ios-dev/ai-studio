@@ -546,6 +546,7 @@ async function sendMessage() {
       chat.id = result.chatId;
       state.currentId = result.chatId;
       userMessage.files = result.files || userMessage.files;
+      if (result.memoryUpdated) showToast("Память обновлена");
     }
     chat.messages.push({ role: "assistant", content: answer, citations });
     chat.updatedAt = Date.now();
@@ -752,8 +753,8 @@ let memoryToggleBusy = false;
 let memoryReturnToSettings = false;
 function memoryError(text = "") { $("memoryError").textContent = text; $("memoryError").classList.toggle("hidden", !text); $("refreshMemoryButton").classList.toggle("hidden", !text); }
 function renderMemory() {
-  $("memorySummary").textContent = memoryData?.summary || (memoryData ? "Память пока пуста. Напишите, что нужно запомнить." : "Загружаем…");
-  $("memoryQuota").textContent = memoryData ? `Обновлений осталось: ${memoryData.remaining} из ${memoryData.limit}. Отдельный лимит, обычные запросы не расходуются. Сброс в 00:00 по Москве.` : "";
+  $("memorySummary").textContent = memoryData?.summary || (memoryData ? "Сводка появится автоматически, когда вы расскажете о себе в обычном чате. Здесь можно уточнить или удалить сведения." : "Загружаем…");
+  $("memoryQuota").textContent = memoryData ? `Ручных обновлений осталось: ${memoryData.remaining} из ${memoryData.limit}. Автоматическая память обновляется вместе с обычным ответом без дополнительного запроса. Сброс ручного лимита в 00:00 по Москве.` : "";
   $("memoryEnabledNote").textContent = memoryData && !memoryData.memoryEnabled ? "Использование памяти отключено в настройках. Сводка сохраняется, но не передаётся в чаты." : "Сводка учитывается в обычных чатах при включённой памяти. Временные чаты её не используют.";
   $("updateMemoryButton").disabled = memoryBusy || memoryToggleBusy || !memoryData || memoryData.remaining <= 0;
   $("memoryCommandInput").disabled = memoryBusy || memoryToggleBusy;

@@ -291,6 +291,20 @@ function instructionsFor(user, memory) {
   if (memory) pieces.push(`Подходящие выдержки из других диалогов:\n${memory}`);
   return pieces.join("\n\n");
 }
+function splitAutomaticMemory(answer, marker) {
+  if (!marker) return { answer, summary: null };
+  const opening = `<${marker}>`, closing = `</${marker}>`;
+  const start = answer.lastIndexOf(opening);
+  if (start < 0) return { answer, summary: null };
+  const end = answer.indexOf(closing, start);
+  // An incomplete metadata suffix must not be shown or saved as an answer.
+  const cleanAnswer = answer.slice(0, start).trim();
+  if (end < 0 || answer.slice(end + closing.length).trim()) return { answer: cleanAnswer, summary: null };
+  try {
+    const data = JSON.parse(answer.slice(start + opening.length, end));
+    return { answer: cleanAnswer, summary: typeof data.summary === "string" && data.summary.length <= 6000 ? data.summary.trim() : null };
+  } catch { return { answer: cleanAnswer, summary: null }; }
+}
 async function handleApi(request, env) {
   if (!env.DB) return safeError("База D1 ещё не подключена.", 503);
   const authResponse = await handleTelegramAuth(request, env) || await handleEmailAuth(request, env);
@@ -506,12 +520,19 @@ async function handleApi(request, env) {
     try {
       if (!temporary) stored = await persistFiles(env, user.id, chatId, files);
       const memory = !temporary && user.memory_enabled ? await memoryFor(env.DB, user.id, chatId, content) : "";
-      const summary = !temporary && user.memory_enabled ? await env.DB.prepare("SELECT summary FROM memory_summaries WHERE user_id = ?").bind(user.id).first() : null;
-      const instructions = instructionsFor(user, memory) + (summary?.summary ? `\nЛичная сводка памяти пользователя (контекст и предпочтения):\n${summary.summary}` : "");
+      const autoMemory = !temporary && !!user.memory_enabled;
+      if (autoMemory) await env.DB.prepare("INSERT OR IGNORE INTO memory_summaries (user_id, summary, version, updated_at) VALUES (?, '', 0, ?)").bind(user.id, Date.now()).run();
+      const summary = autoMemory ? await env.DB.prepare("SELECT summary, version FROM memory_summaries WHERE user_id = ?").bind(user.id).first() : null;
+      const marker = autoMemory ? `AI_STUDIO_MEMORY_${crypto.randomUUID().replaceAll("-", "")}` : "";
+      const instructions = instructionsFor(user, memory) + (summary?.summary ? `\nЛичная сводка памяти пользователя (контекст и предпочтения):\n${summary.summary}` : "")
+        + (marker ? `\nПосле обычного ответа автоматически актуализируй личную сводку памяти. Сохраняй только устойчивые факты, планы и предпочтения, которые пользователь явно сообщил о себе в своём последнем сообщении, даже без просьбы запомнить (например: «я учу английский»). Не сохраняй вопросы, одноразовые задания, цитаты, гипотетические примеры и сведения, придуманные тобой. Сохраняй прежние факты, исправляй противоречащие новому сообщению и удаляй явно забываемые. В самом конце ответа добавь служебный блок <${marker}>{"summary":"полная обновлённая сводка до 6000 символов"}</${marker}>. Если новых сведений или исправлений нет, используй {"summary":null}. Внутри блока только JSON, без Markdown. Блок не является частью ответа пользователю.` : "");
       const modelFiles = files.length || temporary ? files : await priorFilesForContext(env, user.id, fullHistory, content);
-      const { answer, citations } = ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"].includes(model)
+      let { answer, citations } = ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"].includes(model)
         ? await callOpenAI(env, model, history, content, modelFiles, thinking, instructions, webSearch)
         : { answer: model === "gemini-3.8-flash" ? await callGemini(env, history, content, modelFiles, thinking, instructions) : await callOpenRouter(env, model, history, content, modelFiles, thinking, instructions), citations: [] };
+      const extracted = splitAutomaticMemory(answer, marker);
+      answer = extracted.answer;
+      if (!answer.trim()) throw new Error("Модель не вернула текстовый ответ. Попробуйте ещё раз.");
       const publicFiles = stored.map(({ id, name, type, size }) => ({ id, name, type, size }));
       const otherUsed = await usageForUser(env.DB, user.id, !smart);
       const remaining = Math.max(0, settings.daily_limit - (smart ? otherUsed : count));
@@ -520,7 +541,14 @@ async function handleApi(request, env) {
       const messages = [...fullHistory, { role: "user", content, files: publicFiles }, { role: "assistant", content: answer, citations }];
       const title = existing?.title || content.slice(0, 46) || files[0].name.slice(0, 46);
       await env.DB.prepare("INSERT INTO chats (id, user_id, title, model, messages_json, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET messages_json = excluded.messages_json, updated_at = excluded.updated_at").bind(chatId, user.id, title, model, JSON.stringify(messages), Date.now()).run();
-      return json({ chatId, answer, citations, files: publicFiles, remaining, smartRemaining });
+      let memoryUpdated = false;
+      if (summary && extracted.summary !== null && extracted.summary !== summary.summary) {
+        try {
+          const saved = await env.DB.prepare("UPDATE memory_summaries SET summary = ?, version = version + 1, updated_at = ? WHERE user_id = ? AND version = ? AND EXISTS (SELECT 1 FROM users WHERE id = ? AND memory_enabled = 1) RETURNING version").bind(extracted.summary, Date.now(), user.id, summary.version, user.id).first();
+          memoryUpdated = !!saved;
+        } catch { /* A memory write must never invalidate an already saved chat. */ }
+      }
+      return json({ chatId, answer, citations, files: publicFiles, remaining, smartRemaining, memoryUpdated });
     } catch (error) {
       if (stored.length) {
         await Promise.allSettled(stored.map((file) => fileStore(env).delete(file.key)));

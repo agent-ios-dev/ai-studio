@@ -135,6 +135,83 @@ test("memory summary enters normal model context only with memory enabled, never
   assert.ok(!contexts[2].includes("SECRET_MEMORY_FACT"));
 });
 
+test("normal chats automatically update memory in the same provider call without exposing metadata", async context => {
+  const db = database();
+  setupUser(db, "auto-memory", TOKEN_A);
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = async (url, options) => {
+    requests++;
+    const body = JSON.parse(options.body);
+    const instructions = body.instructions || body.systemInstruction?.parts[0].text || body.messages[0].content;
+    const marker = instructions.match(/AI_STUDIO_MEMORY_[a-f0-9]{32}/)?.[0];
+    assert.ok(marker);
+    const text = `Помогу с изучением английского.\n<${marker}>${JSON.stringify({ summary: `Пользователь учит английский. Версия ${requests}.` })}</${marker}>`;
+    if (String(url).includes('generativelanguage')) return Response.json({ candidates: [{ content: { parts: [{ text }] } }] });
+    if (String(url).includes('openrouter')) return Response.json({ choices: [{ message: { content: text } }] });
+    return Response.json({ output: [{ type: "message", content: [{ type: "output_text", text }] }] });
+  };
+  context.after(() => { globalThis.fetch = originalFetch; db.sqlite.close(); });
+  for (const model of ["gpt-6-luna", "gemini-3.8-flash", "nemotron-3-ultra"]) {
+    const response = await worker.fetch(makeRequest("/api/chat", TOKEN_A, "POST", { model, content: "я учу английский", files: [], thinking: "low" }), env(db));
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.memoryUpdated, true);
+    assert.equal(result.answer, "Помогу с изучением английского.");
+  }
+  assert.equal(requests, 3);
+  const memory = await (await worker.fetch(makeRequest("/api/memory", TOKEN_A), env(db))).json();
+  assert.match(memory.summary, /английский/);
+  assert.equal(memory.version, 3);
+  assert.equal(memory.remaining, 10);
+  assert.equal(db.sqlite.prepare("SELECT count FROM usage WHERE user_id = 'auto-memory'").get().count, 3);
+  const rows = db.sqlite.prepare("SELECT messages_json FROM chats").all();
+  assert.equal(rows.length, 3);
+  assert.ok(rows.every(row => !row.messages_json.includes("AI_STUDIO_MEMORY")));
+});
+
+test("automatic memory stays off in temporary chats and respects memory disabled during a request", async context => {
+  const db = database();
+  setupUser(db, "auto-private", TOKEN_A);
+  const originalFetch = globalThis.fetch;
+  let turn = 0;
+  globalThis.fetch = async (_url, options) => {
+    const instructions = JSON.parse(options.body).systemInstruction.parts[0].text;
+    const marker = instructions.match(/AI_STUDIO_MEMORY_[a-f0-9]{32}/)?.[0];
+    turn++;
+    if (turn < 3) assert.equal(marker, undefined);
+    if (turn === 3) db.sqlite.exec("UPDATE users SET memory_enabled = 0 WHERE id = 'auto-private'");
+    return Response.json({ candidates: [{ content: { parts: [{ text: marker ? `Ответ\n<${marker}>{"summary":"Не сохранять"}</${marker}>` : "Ответ" }] } }] });
+  };
+  context.after(() => { globalThis.fetch = originalFetch; db.sqlite.close(); });
+  const chat = temporary => worker.fetch(makeRequest("/api/chat", TOKEN_A, "POST", { temporary, model: "gemini-3.8-flash", content: "Обо мне", files: [], thinking: "low" }), env(db));
+  assert.equal((await chat(true)).status, 200);
+  db.sqlite.exec("UPDATE users SET memory_enabled = 0");
+  assert.equal((await chat(false)).status, 200);
+  db.sqlite.exec("UPDATE users SET memory_enabled = 1");
+  const response = await chat(false);
+  assert.equal((await response.json()).memoryUpdated, false);
+  const summary = await (await worker.fetch(makeRequest("/api/memory", TOKEN_A), env(db))).json();
+  assert.equal(summary.summary, "");
+});
+
+test("malformed memory metadata cannot corrupt summary or leak into chat history", async context => {
+  const db = database();
+  setupUser(db, "auto-malformed", TOKEN_A);
+  db.sqlite.prepare("INSERT INTO memory_summaries VALUES (?, 'Keep this', 1, ?)").run("auto-malformed", Date.now());
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, options) => {
+    const marker = JSON.parse(options.body).systemInstruction.parts[0].text.match(/AI_STUDIO_MEMORY_[a-f0-9]{32}/)[0];
+    return Response.json({ candidates: [{ content: { parts: [{ text: `Обычный ответ\n<${marker}>{broken` }] } }] });
+  };
+  context.after(() => { globalThis.fetch = originalFetch; db.sqlite.close(); });
+  const response = await worker.fetch(makeRequest("/api/chat", TOKEN_A, "POST", { model: "gemini-3.8-flash", content: "Привет", files: [], thinking: "low" }), env(db));
+  const data = await response.json();
+  assert.equal(data.answer, "Обычный ответ");
+  assert.equal(data.memoryUpdated, false);
+  assert.equal(db.sqlite.prepare("SELECT summary FROM memory_summaries WHERE user_id = 'auto-malformed'").get().summary, "Keep this");
+});
+
 test("memory accepts a plain fact through Luna without a normal chat request", async context => {
   const db = database();
   setupUser(db, "memory-luna", TOKEN_A);
