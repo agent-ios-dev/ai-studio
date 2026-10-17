@@ -10,6 +10,10 @@
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#141518" : "#ffffff");
+    for (const link of document.querySelectorAll("link[data-light-href][data-dark-href]")) {
+      const href = theme === "dark" ? link.dataset.darkHref : link.dataset.lightHref;
+      if (link.getAttribute("href") !== href) link.setAttribute("href", href);
+    }
     const select = document.getElementById("themeSelect");
     if (select) select.value = preference;
     document.dispatchEvent(new CustomEvent("aistudio:themechange", { detail: { theme, preference } }));

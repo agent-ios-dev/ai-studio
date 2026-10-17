@@ -1,6 +1,9 @@
 /* Theme preference is applied by theme.js before the first paint. */
 :root{color-scheme:light}
 .theme-select{margin-bottom:22px}
+.welcome-mark .app-logo-dark{display:none}
+html[data-theme="dark"] .welcome-mark .app-logo-light{display:none}
+html[data-theme="dark"] .welcome-mark .app-logo-dark{display:block}
 @media(forced-colors:none){
 :root[data-theme="dark"]{color-scheme:dark;color:#f0f1f4;background:#141518;--dark-bg:#141518;--dark-panel:#1c1e23;--dark-field:#2b2e35;--dark-hover:#343840;--dark-line:#3b3f48;--dark-text:#f0f1f4;--dark-muted:#b1b7c3;--dark-link:#9bbdff}
 html[data-theme="dark"] body{background:var(--dark-bg);color:var(--dark-text)}
