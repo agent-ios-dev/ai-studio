@@ -24,10 +24,9 @@ const state = {
   tempChat: null,
   busy: false,
   files: [],
-  remaining: 30,
-  limit: 30,
-  smartRemaining: 5,
-  smartLimit: 5,
+  remaining: 50000,
+  limit: 50000,
+  estimated: false,
   resetBalance: 0,
   resetCap: 3,
   resetIntervalDays: 7,
@@ -47,7 +46,6 @@ function currentChat() { return state.currentId === "temporary" ? state.tempChat
 function selectedModel() { return MODELS.find((model) => model.id === state.model) || { id: state.model, name: `${currentChat()?.modelName || "Модель"} · недоступна` }; }
 function modelAvailable(id) { return MODELS.some((model) => model.id === id && !model.disabled); }
 function selectedThinking() { return state.thinking[state.model] || "medium"; }
-function isSmartModel(model) { return model === "gpt-6-astra" || model === "gpt-6-sol"; }
 function supportsWebSearch(model) { return ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"].includes(model); }
 function apiUrl(path) { return `${state.apiUrl}${path}`; }
 function showToast(message) {
@@ -103,8 +101,7 @@ async function connect(askForName = true) {
     state.connected = true;
     state.remaining = profile.remaining;
     state.limit = profile.limit;
-    state.smartRemaining = profile.smartRemaining;
-    state.smartLimit = profile.smartLimit;
+    state.estimated = !!profile.estimated;
     state.resetBalance = profile.resetBalance;
     state.resetCap = profile.resetCap;
     state.resetIntervalDays = profile.resetIntervalDays;
@@ -139,8 +136,7 @@ async function refreshDailyLimit() {
     const profile = await api("/api/me");
     state.remaining = profile.remaining;
     state.limit = profile.limit;
-    state.smartRemaining = profile.smartRemaining;
-    state.smartLimit = profile.smartLimit;
+    state.estimated = !!profile.estimated;
     state.resetBalance = profile.resetBalance;
     state.nextResetAt = profile.nextResetAt;
     state.nextDailyResetAt = profile.nextDailyResetAt;
@@ -160,12 +156,10 @@ document.addEventListener("visibilitychange", () => {
 });
 function renderQuota() {
   const percent = Math.max(0, Math.min(100, Math.round((state.remaining / Math.max(1, state.limit)) * 100)));
-  const smartPercent = Math.max(0, Math.min(100, Math.round((state.smartRemaining / Math.max(1, state.smartLimit)) * 100)));
-  const smart = isSmartModel(state.model);
-  $("quotaLabel").textContent = smart ? "Лимит Astra и Sol" : "Дневной лимит";
-  $("quotaPercent").textContent = state.connected ? `${smart ? smartPercent : percent}%` : "—";
-  $("quotaFill").style.width = state.connected ? `${smart ? smartPercent : percent}%` : "0%";
-  $("quotaText").textContent = state.connected ? `${smart ? smartPercent : percent}% лимита осталось` : "Войдите в аккаунт";
+  $("quotaLabel").textContent = "Дневной лимит";
+  $("quotaPercent").textContent = state.connected ? `${percent}%` : "—";
+  $("quotaFill").style.width = state.connected ? `${percent}%` : "0%";
+  $("quotaText").textContent = state.connected ? `${percent}% токенного лимита осталось` : "Войдите в аккаунт";
   $("modePill").textContent = state.connected ? "Бета" : "Вход через Telegram";
   if (state.currentId === "temporary") $("modePill").textContent = "Временный чат";
   $("planLabel").textContent = state.connected ? (state.telegramName || state.email || "Бета · личный доступ") : "Требуется вход";
@@ -176,10 +170,8 @@ function renderQuota() {
   $("welcomeText").textContent = state.connected ? "Выберите модель и напишите сообщение. История синхронизируется с вашим профилем." : "Войдите через Telegram, чтобы начать чат, или используйте личную ссылку.";
   $("limitsNumber").textContent = state.connected ? `${percent}%` : "—";
   $("limitsFill").style.width = state.connected ? `${percent}%` : "0%";
-  $("limitsCaption").textContent = state.connected ? `осталось ${state.remaining} из ${state.limit} запросов сегодня` : "лимита осталось сегодня";
-  $("smartLimitsNumber").textContent = state.connected ? `${smartPercent}%` : "—";
-  $("smartLimitsFill").style.width = state.connected ? `${smartPercent}%` : "0%";
-  $("smartLimitsCaption").textContent = state.connected ? `осталось ${state.smartRemaining} из ${state.smartLimit} запросов сегодня` : "5 запросов в сутки на две модели вместе";
+  $("limitsResetTime").textContent = `${state.limit.toLocaleString("ru-RU")} токенов в сутки на все модели вместе. Учитываются контекст, ответ и рассуждения. Лимит обновляется в 00:00 по Москве.${state.estimated ? " Часть расхода оценена: провайдер не сообщил точное число токенов." : ""}`;
+  $("limitsCaption").textContent = state.connected ? "единого токенного лимита осталось сегодня" : "лимита осталось сегодня";
   $("resetBalance").textContent = state.connected ? `${state.resetBalance} из ${state.resetCap}` : "—";
   $("nextResetText").textContent = state.connected ? (state.nextResetAt ? `Начисление: +${state.resetGrantAmount} каждые ${state.resetIntervalDays} дн. Следующее — ${new Date(state.nextResetAt).toLocaleString("ru-RU")}.` : "Запас сбросов заполнен.") : "Войдите, чтобы увидеть сбросы.";
   $("useResetButton").disabled = !state.connected || state.resetBalance < 1 || state.remaining >= state.limit;
@@ -434,7 +426,7 @@ async function toggleVoice() {
   if (voiceProcessing || state.busy) return;
   if (!state.connected) { openAuth(); return; }
   if (selectedModel().disabled) { showToast("GPT-6 Luna: технические работы."); return; }
-  if ((isSmartModel(state.model) ? state.smartRemaining : state.remaining) <= 0) { showToast(isSmartModel(state.model) ? "Лимит Astra и Sol исчерпан. Попробуйте завтра." : "Дневной лимит исчерпан. Попробуйте завтра."); return; }
+  if (state.remaining <= 0) { showToast("Токенный лимит исчерпан. Он обновится в 00:00 по Москве."); return; }
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) { showToast("Этот браузер не поддерживает запись с микрофона."); return; }
   let stream;
   try {
@@ -461,6 +453,10 @@ async function toggleVoice() {
         form.set("audio", audio, type.includes("mp4") ? "speech.mp4" : "speech.webm");
         form.set("model", state.model);
         const result = await api("/api/transcribe", { method: "POST", body: form });
+        state.remaining = result.remaining;
+        state.estimated = !!result.estimated;
+        state.limit = result.limit;
+        renderQuota();
         $("promptInput").value = [$("promptInput").value.trim(), result.text].filter(Boolean).join(" ");
         $("promptInput").dispatchEvent(new Event("input"));
         transcribed = true;
@@ -519,7 +515,7 @@ async function sendMessage() {
   const content = $("promptInput").value.trim();
   const attached = [...state.files];
   if (!content && attached.length === 0) return;
-  if (state.connected && (isSmartModel(state.model) ? state.smartRemaining : state.remaining) <= 0) { showToast(isSmartModel(state.model) ? "Лимит Astra и Sol исчерпан. Попробуйте завтра." : "Дневной лимит исчерпан. Попробуйте завтра."); return; }
+  if (state.connected && state.remaining <= 0) { showToast("Токенный лимит исчерпан. Он обновится в 00:00 по Москве."); return; }
   const chat = currentChat() || { id: id(), title: content.slice(0, 46) || attached[0].name, model: state.model, modelName: selectedModel().name, messages: [], updatedAt: Date.now() };
   if (!currentChat()) { state.chats.unshift(chat); state.currentId = chat.id; }
   const temporary = chat.id === "temporary";
@@ -542,7 +538,8 @@ async function sendMessage() {
       answer = result.answer;
       citations = result.citations || [];
       state.remaining = result.remaining;
-      state.smartRemaining = result.smartRemaining;
+      state.estimated = !!result.estimated;
+      state.limit = result.limit || state.limit;
       chat.id = result.chatId;
       state.currentId = result.chatId;
       userMessage.files = result.files || userMessage.files;
@@ -559,7 +556,7 @@ async function sendMessage() {
   } finally {
     state.busy = false;
     renderAll();
-    if (state.nextDailyResetAt && Date.now() >= state.nextDailyResetAt) refreshDailyLimit();
+    refreshDailyLimit();
     $("promptInput").focus();
   }
 }
@@ -754,14 +751,14 @@ let memoryReturnToSettings = false;
 function memoryError(text = "") { $("memoryError").textContent = text; $("memoryError").classList.toggle("hidden", !text); $("refreshMemoryButton").classList.toggle("hidden", !text); }
 function renderMemory() {
   $("memorySummary").textContent = memoryData?.summary || (memoryData ? "Сводка появится автоматически, когда вы расскажете о себе в обычном чате. Здесь можно уточнить или удалить сведения." : "Загружаем…");
-  $("memoryQuota").textContent = memoryData ? `Ручных обновлений осталось: ${memoryData.remaining} из ${memoryData.limit}. Автоматическая память обновляется вместе с обычным ответом без дополнительного запроса. Сброс ручного лимита в 00:00 по Москве.` : "";
+  $("memoryQuota").textContent = "Обновление памяти расходует единый токенный лимит. Автоматическая память включена в обычный ответ.";
   $("memoryEnabledNote").textContent = memoryData && !memoryData.memoryEnabled ? "Использование памяти отключено в настройках. Сводка сохраняется, но не передаётся в чаты." : "Сводка учитывается в обычных чатах при включённой памяти. Временные чаты её не используют.";
   $("updateMemoryButton").disabled = memoryBusy || memoryToggleBusy || !memoryData || memoryData.remaining <= 0;
   $("memoryCommandInput").disabled = memoryBusy || memoryToggleBusy;
   $("refreshMemoryButton").disabled = memoryBusy || memoryToggleBusy;
   $("updateMemoryButton").classList.toggle("memory-updating", memoryBusy);
   $("updateMemoryButton").setAttribute("aria-label", memoryBusy ? "Обновляем память" : "Обновить память");
-  $("updateMemoryButton").title = memoryData ? `Обновить память · осталось ${memoryData.remaining} из ${memoryData.limit}` : "Обновить память";
+  $("updateMemoryButton").title = memoryData ? `Обновить память · осталось ${Math.round(memoryData.remaining / memoryData.limit * 100)}%` : "Обновить память";
   $("memoryPageEnabledInput").disabled = memoryBusy || memoryToggleBusy || !memoryData;
   $("memoryPageEnabledInput").checked = memoryData?.memoryEnabled ?? state.profile.memoryEnabled;
 }
@@ -829,6 +826,10 @@ $("memoryCommandForm").addEventListener("submit", async event => {
     const result = await api("/api/memory", { method: "POST", body: JSON.stringify({ command, version: memoryData.version }) });
     if (state.token !== token) return;
     memoryData = result;
+    state.remaining = result.remaining;
+    state.estimated = !!result.estimated;
+    state.limit = result.limit;
+    renderQuota();
     $("memoryCommandInput").value = "";
     $("memoryStatus").textContent = "Сводка памяти обновлена";
   } catch (error) { memoryError(error.message); $("memoryStatus").textContent = ""; }
@@ -918,6 +919,7 @@ $("useResetButton").addEventListener("click", async () => {
   try {
     const result = await api("/api/reset", { method: "POST", body: "{}" });
     state.remaining = result.remaining;
+    state.estimated = !!result.estimated;
     state.resetBalance = result.resetBalance;
     state.nextResetAt = result.nextResetAt;
     renderQuota();

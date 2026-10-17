@@ -27,7 +27,7 @@
         <h2>Лимиты и сбросы</h2>
         <p>Правила применяются ко всем пользователям.</p>
         <form id="policyForm" class="admin-form">
-          <label>Запросов в сутки<input id="dailyLimit" type="number" min="1" max="200" required /></label>
+          <label>Токенов в сутки<input id="dailyLimit" type="number" min="1000" max="1000000" step="1000" required /></label>
           <label>Сброс начисляется раз в (дней)<input id="resetIntervalDays" type="number" min="1" max="365" required /></label>
           <label>Максимум сбросов в запасе<input id="resetCap" type="number" min="1" max="20" required /></label>
           <label>Сбросов за одно начисление<input id="resetGrantAmount" type="number" min="1" max="10" required /></label>

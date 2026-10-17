@@ -189,18 +189,13 @@
     <dialog id="limitsDialog" class="settings-dialog">
       <form method="dialog" class="dialog-head"><h2>Лимиты</h2><button class="icon-button" aria-label="Закрыть"><svg><use href="#i-close"/></svg></button></form>
       <div class="dialog-body">
-        <strong class="quota-section-title">Обычные модели</strong>
+        <strong class="quota-section-title">Все модели — единый лимит</strong>
         <div class="limits-number" id="limitsNumber">—</div>
         <p class="limits-caption" id="limitsCaption">лимита осталось сегодня</p>
         <div class="quota-track limits-track"><div class="quota-fill" id="limitsFill"></div></div>
+        <p class="field-note" id="limitsResetTime">50 000 токенов в сутки на все модели вместе. Учитываются контекст, ответ и рассуждения. Лимит обновляется в 00:00 по Москве.</p>
         <div class="dialog-divider"></div>
-        <strong class="quota-section-title">GPT-6 Astra и GPT-6 Sol</strong>
-        <div class="limits-number" id="smartLimitsNumber">—</div>
-        <p class="limits-caption" id="smartLimitsCaption">5 запросов в сутки на две модели вместе</p>
-        <div class="quota-track limits-track"><div class="quota-fill" id="smartLimitsFill"></div></div>
-        <p class="field-note" id="limitsResetTime">Оба лимита обновляются каждый день в 00:00 по Москве. Бесплатные сбросы действуют только для обычных моделей.</p>
-        <div class="dialog-divider"></div>
-        <div class="reset-heading"><strong>Сбросы обычного лимита</strong><span id="resetBalance">0 из 3</span></div>
+        <div class="reset-heading"><strong>Сбросы токенного лимита</strong><span id="resetBalance">0 из 3</span></div>
         <p class="field-note" id="nextResetText">Один сброс начисляется каждые 7 дней, максимум 3 в запасе.</p>
         <button class="primary-button" id="useResetButton" type="button">Сбросить дневной лимит</button>
       </div>

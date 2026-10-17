@@ -1,14 +1,13 @@
-import { handleEmailAuth, sessionUser, reserveRate, bodyFor } from "./email-auth.js";
+import { handleEmailAuth, sessionUser, bodyFor } from "./email-auth.js";
 import { handleTelegramAuth, telegramSessionUser } from "./telegram-auth.js";
+import { tokenUsage, inputTokenBound, tokenBalance, reserveTokens, settleTokens } from "./token-quota.js";
 
 const DAY_MS = 86_400_000;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_VOICE_BYTES = 3 * 1024 * 1024;
 const MOSCOW_DATE = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Moscow", year: "numeric", month: "2-digit", day: "2-digit" });
 const OPENROUTER_MODELS = { "nemotron-3-ultra": "nvidia/nemotron-3-ultra-550b-a55b:free" };
-const SMART_MODELS = new Set(["gpt-6-astra", "gpt-6-sol"]);
 const SEARCH_MODELS = new Set(["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"]);
-const SMART_DAILY_LIMIT = 5;
 const ALLOWED_MODELS = new Set(["gpt-6-luna", "gpt-6-sol", "gpt-6-astra", "gemini-3.8-flash", ...Object.keys(OPENROUTER_MODELS)]);
 const DEFAULT_MODEL = "gemini-3.8-flash";
 function modelEnabled(_env, model) { return ALLOWED_MODELS.has(model); }
@@ -25,15 +24,8 @@ function dayKey(at = Date.now()) {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 function nextDailyResetAt(at = Date.now()) {
-  const today = dayKey(at);
-  let before = at;
-  let after = at + DAY_MS + 4 * 60 * 60 * 1000;
-  while (after - before > 1000) {
-    const middle = Math.floor((before + after) / 2);
-    if (dayKey(middle) === today) before = middle;
-    else after = middle;
-  }
-  return after;
+  const [year, month, day] = dayKey(at).split("-").map(Number);
+  return Date.UTC(year, month - 1, day + 1, -3);
 }
 function safeError(message, status = 400) { return json({ error: message }, status); }
 function isTextFile(file) {
@@ -136,7 +128,7 @@ async function userForRequest(request, env) {
   return legacy ? { ...legacy, auth_type: "link", email: null } : await sessionUser(env.DB, tokenHash) || telegramSessionUser(env.DB, tokenHash);
 }
 async function settingsFor(db) {
-  return await db.prepare("SELECT daily_limit, reset_interval_days, reset_cap, reset_grant_amount FROM settings WHERE id = 1").first() || { daily_limit: 30, reset_interval_days: 7, reset_cap: 3, reset_grant_amount: 1 };
+  return await db.prepare("SELECT daily_limit, reset_interval_days, reset_cap, reset_grant_amount FROM settings WHERE id = 1").first() || { daily_limit: 50000, reset_interval_days: 7, reset_cap: 3, reset_grant_amount: 1 };
 }
 async function refreshResets(db, user, settings) {
   const interval = settings.reset_interval_days * DAY_MS;
@@ -149,21 +141,7 @@ async function refreshResets(db, user, settings) {
   return user;
 }
 function nextGrantAt(user, settings) { return user.reset_balance >= settings.reset_cap ? null : user.reset_last_grant_at + settings.reset_interval_days * DAY_MS; }
-async function usageForUser(db, userId, smart = false) {
-  const table = smart ? "smart_usage" : "usage";
-  const record = await db.prepare(`SELECT count FROM ${table} WHERE user_id = ? AND day = ?`).bind(userId, dayKey()).first();
-  return Number(record?.count || 0);
-}
-async function reserveRequest(db, userId, limit, day = dayKey(), smart = false) {
-  const table = smart ? "smart_usage" : "usage";
-  const record = await db.prepare(`INSERT INTO ${table} (user_id, day, count) VALUES (?, ?, 1) ON CONFLICT(user_id, day) DO UPDATE SET count = count + 1 WHERE count < ? RETURNING count`).bind(userId, day, limit).first();
-  return record ? Number(record.count) : null;
-}
-async function releaseRequest(db, userId, day, smart = false) {
-  const table = smart ? "smart_usage" : "usage";
-  await db.prepare(`UPDATE ${table} SET count = MAX(0, count - 1) WHERE user_id = ? AND day = ?`).bind(userId, day).run();
-}
-async function callGeminiWithFallback(env, payload, separator, emptyMessage, timeoutMs) {
+async function callGeminiWithFallback(env, payload, separator, emptyMessage, timeoutMs, accounting) {
   const keys = [...new Set([env.GEMINI_API_KEY, env.GEMINI_API_KEY_BACKUP_1, env.GEMINI_API_KEY_BACKUP_2, env.GEMINI_API_KEY_BACKUP_3].map((key) => String(key || "").trim()).filter(Boolean))];
   if (!keys.length) throw new Error("Ключ Gemini ещё не добавлен в Worker.");
   const body = JSON.stringify(payload);
@@ -177,15 +155,18 @@ async function callGeminiWithFallback(env, payload, separator, emptyMessage, tim
       });
       const data = await response.json();
       if (!response.ok) continue;
+      if (accounting) { const tokens = tokenUsage(data, "gemini"); if (tokens !== null) accounting.total = (accounting.total || 0) + tokens; }
       const text = (data.candidates?.[0]?.content?.parts || []).map((part) => part.text || "").join(separator).trim();
-      if (text) return text;
+      if (text) {
+        return text;
+      }
     } catch { /* Try the next key on network and response errors. */ }
   }
   throw new Error(keys.length > 1 ? "Все ключи Gemini временно недоступны. Попробуйте позже." : emptyMessage);
 }
-async function transcribeAudio(env, audio) {
+async function transcribeAudio(env, audio, accounting) {
   const bytes = new Uint8Array(await audio.arrayBuffer());
-  return (await callGeminiWithFallback(env, { contents: [{ parts: [{ text: "Дословно расшифруй речь из аудио. Верни только произнесённый текст, без пояснений и Markdown." }, { inline_data: { mime_type: audio.type.split(";")[0], data: base64FromBytes(bytes) } }] }], generationConfig: { maxOutputTokens: 2048 } }, " ", "Речь не распознана.")).slice(0, 12_000);
+  return (await callGeminiWithFallback(env, { contents: [{ parts: [{ text: "Дословно расшифруй речь из аудио. Верни только произнесённый текст, без пояснений и Markdown." }, { inline_data: { mime_type: audio.type.split(";")[0], data: base64FromBytes(bytes) } }] }], generationConfig: { maxOutputTokens: 2048 } }, " ", "Речь не распознана.", 12_000, accounting)).slice(0, 12_000);
 }
 function openAiInput(history, message, files) {
   const prior = history.slice(-24).map((entry) => ({ role: entry.role, content: entry.content || "(вложение)" }));
@@ -212,6 +193,7 @@ async function callOpenAI(env, model, history, message, files, thinking, instruc
     throw error;
   }
   const data = await response.json();
+  if (options.accounting) options.accounting.total = tokenUsage(data, "openai");
   if (!response.ok) throw new Error(data.error?.message || `${MODEL_NAMES[model]} временно недоступна.`);
   const parts = (data.output || []).flatMap((item) => item.content || []).filter((item) => item.type === "output_text");
   let answer = "";
@@ -240,12 +222,12 @@ function geminiParts(message, files) {
   }
   return parts;
 }
-async function callGemini(env, history, message, files, thinking, instructions) {
+async function callGemini(env, history, message, files, thinking, instructions, options = {}) {
   const contents = history.slice(-24).map((entry) => ({ role: entry.role === "assistant" ? "model" : "user", parts: [{ text: entry.content || "(вложение)" }] }));
   contents.push({ role: "user", parts: geminiParts(message, files) });
-  return callGeminiWithFallback(env, { contents, systemInstruction: { parts: [{ text: instructions }] }, generationConfig: { thinkingConfig: { thinkingLevel: thinking }, maxOutputTokens: 8192 } }, "\n", "Модель не вернула текстовый ответ. Попробуйте ещё раз.");
+  return callGeminiWithFallback(env, { contents, systemInstruction: { parts: [{ text: instructions }] }, generationConfig: { thinkingConfig: { thinkingLevel: thinking }, maxOutputTokens: options.maxOutputTokens || 8192 } }, "\n", "Модель не вернула текстовый ответ. Попробуйте ещё раз.", 90_000, options.accounting);
 }
-async function callOpenRouter(env, model, history, message, files, thinking, instructions) {
+async function callOpenRouter(env, model, history, message, files, thinking, instructions, options = {}) {
   if (!env.OPENROUTER_API_KEY) throw new Error("Ключ OpenRouter ещё не добавлен в Worker.");
   const prompt = [message || "Проанализируй приложенный файл.", ...files.filter(isTextFile).map((file) => `Файл «${file.name}»:\n${decodeBase64(file.data)}`)].join("\n\n");
   const images = files.filter((file) => !isTextFile(file)).map((file) => ({ type: "image_url", image_url: { url: `data:${file.type};base64,${file.data}` } }));
@@ -253,7 +235,8 @@ async function callOpenRouter(env, model, history, message, files, thinking, ins
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: OPENROUTER_MODELS[model], messages, reasoning: { effort: thinking }, max_tokens: 4096 }),
+    body: JSON.stringify({ model: OPENROUTER_MODELS[model], messages, reasoning: { effort: thinking }, max_tokens: options.maxOutputTokens || 4096 }),
+    signal: AbortSignal.timeout(90_000),
   });
   let data;
   try { data = await response.json(); } catch { throw new Error("OpenRouter вернул некорректный ответ."); }
@@ -261,6 +244,7 @@ async function callOpenRouter(env, model, history, message, files, thinking, ins
     if (response.status === 429 && data.error?.metadata?.limit_source === "upstream_provider_shared_pool") throw new Error("Бесплатный сервер этой модели временно перегружен. Попробуйте позже.");
     throw new Error(`OpenRouter: ${data.error?.message || `ошибка ${response.status}`}`);
   }
+  if (options.accounting) options.accounting.total = tokenUsage(data, "openrouter");
   const content = data.choices?.[0]?.message?.content;
   const answer = (typeof content === "string" ? content : Array.isArray(content) ? content.map((part) => part.text || "").join("\n") : "").trim();
   if (!answer) throw new Error("Модель не вернула текстовый ответ. Попробуйте ещё раз.");
@@ -322,9 +306,8 @@ async function handleApi(request, env) {
   }
   if (request.method === "GET" && path === "/api/memory") {
     const row = await env.DB.prepare("SELECT summary, version, updated_at FROM memory_summaries WHERE user_id = ?").bind(user.id).first();
-    const bucket = `memory-update:${user.id}:${dayKey()}`;
-    const usage = await env.DB.prepare("SELECT count FROM auth_rate_limits WHERE bucket = ?").bind(bucket).first();
-    return json({ summary: row?.summary || "", version: row?.version || 0, updatedAt: row?.updated_at || null, remaining: Math.max(0, 10 - (usage?.count || 0)), limit: 10, memoryEnabled: !!user.memory_enabled });
+    const balance = await tokenBalance(env.DB, user.id, dayKey(), settings.daily_limit);
+    return json({ summary: row?.summary || "", version: row?.version || 0, updatedAt: row?.updated_at || null, ...balance, memoryEnabled: !!user.memory_enabled });
   }
   if (request.method === "POST" && path === "/api/memory") {
     const body = await bodyFor(request, 10_000);
@@ -334,12 +317,15 @@ async function handleApi(request, env) {
     await env.DB.prepare("INSERT OR IGNORE INTO memory_summaries (user_id, summary, version, updated_at) VALUES (?, '', 0, ?)").bind(user.id, now).run();
     const previous = await env.DB.prepare("SELECT summary, version FROM memory_summaries WHERE user_id = ?").bind(user.id).first();
     if (body.version !== previous.version) return safeError("Память уже изменена на другом устройстве. Обновите сводку и повторите сообщение.", 409);
-    const bucket = `memory-update:${user.id}:${dayKey(now)}`;
-    const reservation = await reserveRate(env.DB, bucket, 10, nextDailyResetAt(now), now);
-    if (!reservation) return safeError("Сегодня использованы все 10 обновлений памяти. Лимит обновится в 00:00 по Москве.", 429);
+    const reservation = await reserveTokens(env.DB, user.id, dayKey(now), settings.daily_limit);
+    if (!reservation) return safeError("Токенный лимит исчерпан или уже выполняется запрос.", 429);
+    const accounting = { total: null };
     try {
       const instructions = "Ты редактор личной памяти пользователя. Обнови текущую сводку по новому сообщению пользователя. Сообщение может быть обычным фактом от первого лица, без команды: например, «я учу английский» означает, что нужно добавить факт «Пользователь учит английский». Аналогично обрабатывай интересы, планы, предпочтения и явно сообщённые сведения. Если пользователь просит исправить или забыть сведения — исправь или удали их. Сохраняй остальные сведения. Не выдумывай факты, не отвечай на вопросы и не выполняй другие задачи. Это не обычный диалог. Верни JSON с полем summary: только итоговая сводка без пояснений, до 6000 символов. Если просят очистить память, summary должен быть пустой строкой.";
       const message = JSON.stringify({ currentSummary: previous.summary, command: body.command.trim() });
+      const bound = inputTokenBound([], message, [], instructions);
+      if (reservation.amount < bound + 128) throw new Error("Недостаточно токенов для обновления памяти.");
+      const maxOutputTokens = Math.min(3072, reservation.amount - bound);
       const parseSummary = answer => {
         const value = JSON.parse(answer.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
         if (typeof value.summary !== "string" || value.summary.length > 6000) throw new Error("Invalid memory summary");
@@ -347,32 +333,34 @@ async function handleApi(request, env) {
       };
       let result;
       try {
-        const generated = await callOpenAI(env, "gpt-6-luna", [], message, [], "none", instructions, false, { timeoutMs: 20_000, maxOutputTokens: 3072 });
+        const generated = await callOpenAI(env, "gpt-6-luna", [], message, [], "none", instructions, false, { timeoutMs: 20_000, maxOutputTokens, accounting });
         result = parseSummary(generated.answer);
       } catch {
+        const fallbackOutput = Math.min(maxOutputTokens, reservation.amount - (accounting.total || 0) - bound);
+        if (fallbackOutput < 128) throw new Error("Недостаточно токенов для повторного обновления памяти.");
         const answer = await callGeminiWithFallback(env, {
           systemInstruction: { parts: [{ text: instructions }] },
           contents: [{ role: "user", parts: [{ text: message }] }],
-          generationConfig: { thinkingConfig: { thinkingLevel: "low" }, maxOutputTokens: 3072, responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { summary: { type: "STRING" } }, required: ["summary"] } },
-        }, "\n", "Модель не вернула сводку памяти.", 12_000);
+          generationConfig: { thinkingConfig: { thinkingLevel: "low" }, maxOutputTokens: fallbackOutput, responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { summary: { type: "STRING" } }, required: ["summary"] } },
+        }, "\n", "Модель не вернула сводку памяти.", 12_000, accounting);
         result = parseSummary(answer);
       }
       const saved = await env.DB.prepare("UPDATE memory_summaries SET summary = ?, version = version + 1, updated_at = ? WHERE user_id = ? AND version = ? RETURNING summary, version, updated_at").bind(result.summary.trim(), Date.now(), user.id, previous.version).first();
       if (!saved) {
-        await env.DB.prepare("UPDATE auth_rate_limits SET count = MAX(0, count - 1) WHERE bucket = ?").bind(bucket).run();
+        await settleTokens(env.DB, reservation, accounting.total ?? 0);
         return safeError("Память изменилась во время обновления. Обновите сводку и повторите сообщение.", 409);
       }
-      return json({ summary: saved.summary, version: saved.version, updatedAt: saved.updated_at, remaining: Math.max(0, 10 - reservation.count), limit: 10, memoryEnabled: !!user.memory_enabled });
+      await settleTokens(env.DB, reservation, accounting.total ?? Math.min(reservation.amount, bound + maxOutputTokens), accounting.total === null);
+      return json({ summary: saved.summary, version: saved.version, updatedAt: saved.updated_at, ...await tokenBalance(env.DB, user.id, dayKey(), settings.daily_limit), memoryEnabled: !!user.memory_enabled });
     } catch {
-      await env.DB.prepare("UPDATE auth_rate_limits SET count = MAX(0, count - 1) WHERE bucket = ?").bind(bucket).run();
-      return safeError("Не удалось обновить память. Попробуйте ещё раз: обновление не списано.", 502);
+      await settleTokens(env.DB, reservation, accounting.total ?? 0);
+      return safeError("Не удалось обновить память. Попробуйте ещё раз.", 502);
     }
   }
   if (request.method === "GET" && path === "/api/me") {
     const updated = await refreshResets(env.DB, user, settings);
-    const used = await usageForUser(env.DB, user.id);
-    const smartUsed = await usageForUser(env.DB, user.id, true);
-    return json({ limit: settings.daily_limit, used, remaining: Math.max(0, settings.daily_limit - used), smartLimit: SMART_DAILY_LIMIT, smartUsed, smartRemaining: Math.max(0, SMART_DAILY_LIMIT - smartUsed), nextDailyResetAt: nextDailyResetAt(), resetBalance: updated.reset_balance, resetCap: settings.reset_cap, resetIntervalDays: settings.reset_interval_days, resetGrantAmount: settings.reset_grant_amount, nextResetAt: nextGrantAt(updated, settings), role: user.role, authType: user.auth_type, email: user.email, telegramUsername: user.telegram_username || null, telegramName: user.telegram_name || null });
+    const balance = await tokenBalance(env.DB, user.id, dayKey(), settings.daily_limit);
+    return json({ ...balance, nextDailyResetAt: nextDailyResetAt(), resetBalance: updated.reset_balance, resetCap: settings.reset_cap, resetIntervalDays: settings.reset_interval_days, resetGrantAmount: settings.reset_grant_amount, nextResetAt: nextGrantAt(updated, settings), role: user.role, authType: user.auth_type, email: user.email, telegramUsername: user.telegram_username || null, telegramName: user.telegram_name || null });
   }
   if (request.method === "GET" && path === "/api/profile") {
     const defaultModel = modelEnabled(env, user.default_model) ? user.default_model : DEFAULT_MODEL;
@@ -388,13 +376,21 @@ async function handleApi(request, env) {
     return json({ displayName, aboutText, defaultModel, memoryEnabled: !!body.memoryEnabled });
   }
   if (request.method === "POST" && path === "/api/reset") {
+    const resetDay = dayKey();
     const updated = await refreshResets(env.DB, user, settings);
-    const used = await usageForUser(env.DB, user.id);
-    if (used === 0) return safeError("Лимит уже полный.");
+    const balance = await tokenBalance(env.DB, user.id, resetDay, settings.daily_limit);
+    if (balance.reserved) return safeError("Дождитесь завершения текущего запроса.", 409);
+    if (balance.used === 0) return safeError("Лимит уже полный.");
+    const resetId = crypto.randomUUID();
+    const claimed = await env.DB.prepare("UPDATE token_usage SET reserved = 1, reservation_id = ?, reserved_until = ? WHERE user_id = ? AND day = ? AND reserved = 0 AND used > 0 RETURNING used").bind(resetId, Date.now() + 60000, user.id, resetDay).first();
+    if (!claimed) return safeError("Дождитесь завершения текущего запроса.", 409);
     const spent = await env.DB.prepare("UPDATE users SET reset_balance = reset_balance - 1 WHERE id = ? AND reset_balance > 0 RETURNING reset_balance, reset_last_grant_at").bind(user.id).first();
-    if (!spent) return safeError("Бесплатных сбросов пока нет.", 429);
-    await env.DB.prepare("UPDATE usage SET count = 0 WHERE user_id = ? AND day = ?").bind(user.id, dayKey()).run();
-    return json({ remaining: settings.daily_limit, resetBalance: spent.reset_balance, nextResetAt: nextGrantAt(spent, settings) });
+    if (!spent) {
+      await env.DB.prepare("UPDATE token_usage SET reserved = 0, reservation_id = NULL WHERE user_id = ? AND day = ? AND reservation_id = ?").bind(user.id, resetDay, resetId).run();
+      return safeError("Бесплатных сбросов пока нет.", 429);
+    }
+    await env.DB.prepare("UPDATE token_usage SET used = 0, estimated = 0, reserved = 0, reservation_id = NULL, reserved_until = 0 WHERE user_id = ? AND day = ? AND reservation_id = ?").bind(user.id, resetDay, resetId).run();
+    return json({ remaining: settings.daily_limit, limit: settings.daily_limit, resetBalance: spent.reset_balance, nextResetAt: nextGrantAt(spent, settings) });
   }
   if (path.startsWith("/api/admin")) {
     if (user.role !== "admin") return safeError("Недостаточно прав.", 403);
@@ -412,7 +408,7 @@ async function handleApi(request, env) {
     if (request.method === "PUT" && path === "/api/admin/settings") {
       const body = await request.json();
       const values = [body.dailyLimit, body.resetIntervalDays, body.resetCap, body.resetGrantAmount].map(Number);
-      if (!values.every(Number.isInteger) || values[0] < 1 || values[0] > 200 || values[1] < 1 || values[1] > 365 || values[2] < 1 || values[2] > 20 || values[3] < 1 || values[3] > 10) return safeError("Проверьте значения лимитов.");
+      if (!values.every(Number.isInteger) || values[0] < 1000 || values[0] > 1000000 || values[1] < 1 || values[1] > 365 || values[2] < 1 || values[2] > 20 || values[3] < 1 || values[3] > 10) return safeError("Проверьте значения лимитов.");
       await env.DB.prepare("UPDATE settings SET daily_limit = ?, reset_interval_days = ?, reset_cap = ?, reset_grant_amount = ? WHERE id = 1").bind(...values).run();
       await env.DB.prepare("UPDATE users SET reset_balance = MIN(reset_balance, ?)").bind(values[2]).run();
       return json({ settings: { daily_limit: values[0], reset_interval_days: values[1], reset_cap: values[2], reset_grant_amount: values[3] } });
@@ -470,22 +466,20 @@ async function handleApi(request, env) {
     try { form = await request.formData(); } catch { return safeError("Не удалось прочитать запись."); }
     const audio = form.get("audio");
     if (!(audio instanceof File) || audio.size < 100 || audio.size > MAX_VOICE_BYTES || !/^(audio\/(webm|mp4|mpeg|wav|x-wav)|video\/mp4)(;|$)/i.test(audio.type)) return safeError("Нужна запись WebM, MP4 или WAV размером до 3 МБ.");
-    const day = dayKey();
-    const smart = SMART_MODELS.has(form.get("model"));
-    const used = await usageForUser(env.DB, user.id, smart);
-    if (used >= (smart ? SMART_DAILY_LIMIT : settings.daily_limit)) return safeError(smart ? "Лимит Astra и Sol исчерпан. Попробуйте завтра." : "Дневной лимит исчерпан. Попробуйте завтра.", 429);
-    await env.DB.prepare("CREATE TABLE IF NOT EXISTS voice_usage (user_id TEXT NOT NULL, day TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, day), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)").run();
-    const reserved = await env.DB.prepare("INSERT INTO voice_usage (user_id, day, count) VALUES (?, ?, 1) ON CONFLICT(user_id, day) DO UPDATE SET count = count + 1 WHERE count < ? RETURNING count").bind(user.id, day, settings.daily_limit).first();
-    if (!reserved) return safeError("Дневной лимит голосового ввода исчерпан.", 429);
+    const reservation = await reserveTokens(env.DB, user.id, dayKey(), settings.daily_limit);
+    if (!reservation) return safeError("Токенный лимит исчерпан или уже выполняется запрос. Попробуйте позже.", 429);
+    const accounting = { total: null };
     try {
-      const text = await transcribeAudio(env, audio);
+      const text = await transcribeAudio(env, audio, accounting);
       if (!text) throw new Error("Речь не распознана. Попробуйте ещё раз.");
-      return json({ text });
+      await settleTokens(env.DB, reservation, accounting.total ?? reservation.amount, accounting.total === null);
+      return json({ text, ...await tokenBalance(env.DB, user.id, dayKey(), settings.daily_limit) });
     } catch (error) {
-      await env.DB.prepare("UPDATE voice_usage SET count = MAX(0, count - 1) WHERE user_id = ? AND day = ?").bind(user.id, day).run();
+      await settleTokens(env.DB, reservation, accounting.total || 0);
       return safeError(error.message || "Не удалось распознать речь.", 502);
     }
   }
+
   if (request.method === "POST" && path === "/api/chat") {
     if (Number(request.headers.get("Content-Length") || 0) > 22_000_000) return safeError("Запрос слишком большой.", 413);
     const raw = await request.text();
@@ -513,9 +507,10 @@ async function handleApi(request, env) {
     if (!Array.isArray(fullHistory)) fullHistory = [];
     const history = fullHistory.slice(-24).filter((entry) => ["user", "assistant"].includes(entry.role) && typeof entry.content === "string").map((entry) => ({ role: entry.role, content: entry.content.slice(0, 12_000) }));
     const requestDay = dayKey();
-    const smart = SMART_MODELS.has(model);
-    const count = await reserveRequest(env.DB, user.id, smart ? SMART_DAILY_LIMIT : settings.daily_limit, requestDay, smart);
-    if (count === null) return safeError(smart ? "Лимит Astra и Sol исчерпан. Попробуйте завтра." : "Дневной лимит исчерпан. Попробуйте завтра.", 429);
+    const reservation = await reserveTokens(env.DB, user.id, requestDay, settings.daily_limit);
+    if (!reservation) return safeError("Токенный лимит исчерпан или уже выполняется запрос. Попробуйте позже.", 429);
+    const accounting = { total: null };
+    let settled = false;
     let stored = [];
     try {
       if (!temporary) stored = await persistFiles(env, user.id, chatId, files);
@@ -527,17 +522,22 @@ async function handleApi(request, env) {
       const instructions = instructionsFor(user, memory) + (summary?.summary ? `\nЛичная сводка памяти пользователя (контекст и предпочтения):\n${summary.summary}` : "")
         + (marker ? `\nПосле обычного ответа автоматически актуализируй личную сводку памяти. Сохраняй только устойчивые факты, планы и предпочтения, которые пользователь явно сообщил о себе в своём последнем сообщении, даже без просьбы запомнить (например: «я учу английский»). Не сохраняй вопросы, одноразовые задания, цитаты, гипотетические примеры и сведения, придуманные тобой. Сохраняй прежние факты, исправляй противоречащие новому сообщению и удаляй явно забываемые. В самом конце ответа добавь служебный блок <${marker}>{"summary":"полная обновлённая сводка до 6000 символов"}</${marker}>. Если новых сведений или исправлений нет, используй {"summary":null}. Внутри блока только JSON, без Markdown. Блок не является частью ответа пользователю.` : "");
       const modelFiles = files.length || temporary ? files : await priorFilesForContext(env, user.id, fullHistory, content);
+      const bound = inputTokenBound(history, content, modelFiles, instructions);
+      if (bound !== null && bound + 128 > reservation.amount) throw new Error("Недостаточно токенов для этого контекста. Сократите сообщение, начните новый чат или дождитесь сброса лимита.");
+      if (reservation.amount < 256) throw new Error("Недостаточно токенов для нового ответа. Дождитесь сброса лимита.");
+      const maxOutputTokens = Math.min(model === "nemotron-3-ultra" ? 4096 : 8192, Math.max(128, reservation.amount - (bound ?? Math.ceil(reservation.amount / 2))));
+      const providerOptions = { maxOutputTokens, accounting };
       let { answer, citations } = ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"].includes(model)
-        ? await callOpenAI(env, model, history, content, modelFiles, thinking, instructions, webSearch)
-        : { answer: model === "gemini-3.8-flash" ? await callGemini(env, history, content, modelFiles, thinking, instructions) : await callOpenRouter(env, model, history, content, modelFiles, thinking, instructions), citations: [] };
+        ? await callOpenAI(env, model, history, content, modelFiles, thinking, instructions, webSearch, providerOptions)
+        : { answer: model === "gemini-3.8-flash" ? await callGemini(env, history, content, modelFiles, thinking, instructions, providerOptions) : await callOpenRouter(env, model, history, content, modelFiles, thinking, instructions, providerOptions), citations: [] };
       const extracted = splitAutomaticMemory(answer, marker);
       answer = extracted.answer;
       if (!answer.trim()) throw new Error("Модель не вернула текстовый ответ. Попробуйте ещё раз.");
       const publicFiles = stored.map(({ id, name, type, size }) => ({ id, name, type, size }));
-      const otherUsed = await usageForUser(env.DB, user.id, !smart);
-      const remaining = Math.max(0, settings.daily_limit - (smart ? otherUsed : count));
-      const smartRemaining = Math.max(0, SMART_DAILY_LIMIT - (smart ? count : otherUsed));
-      if (temporary) return json({ chatId: "temporary", answer, citations, remaining, smartRemaining });
+      await settleTokens(env.DB, reservation, accounting.total ?? Math.min(reservation.amount, (bound ?? reservation.amount) + maxOutputTokens), accounting.total === null);
+      settled = true;
+      const balance = await tokenBalance(env.DB, user.id, dayKey(), settings.daily_limit);
+      if (temporary) return json({ chatId: "temporary", answer, citations, ...balance });
       const messages = [...fullHistory, { role: "user", content, files: publicFiles }, { role: "assistant", content: answer, citations }];
       const title = existing?.title || content.slice(0, 46) || files[0].name.slice(0, 46);
       await env.DB.prepare("INSERT INTO chats (id, user_id, title, model, messages_json, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET messages_json = excluded.messages_json, updated_at = excluded.updated_at").bind(chatId, user.id, title, model, JSON.stringify(messages), Date.now()).run();
@@ -548,13 +548,13 @@ async function handleApi(request, env) {
           memoryUpdated = !!saved;
         } catch { /* A memory write must never invalidate an already saved chat. */ }
       }
-      return json({ chatId, answer, citations, files: publicFiles, remaining, smartRemaining, memoryUpdated });
+      return json({ chatId, answer, citations, files: publicFiles, ...balance, memoryUpdated });
     } catch (error) {
       if (stored.length) {
         await Promise.allSettled(stored.map((file) => fileStore(env).delete(file.key)));
         await Promise.allSettled(stored.map((file) => env.DB.prepare("DELETE FROM files WHERE id = ? AND user_id = ?").bind(file.id, user.id).run()));
       }
-      await releaseRequest(env.DB, user.id, requestDay, smart);
+      if (!settled) await settleTokens(env.DB, reservation, accounting.total ?? 0);
       return safeError(error.message || "Не удалось получить ответ.", 502);
     }
   }
