@@ -717,7 +717,7 @@ $("thinkingSelect").addEventListener("change", () => { state.thinking[state.mode
 $("webSearchToggle").addEventListener("click", () => { if (!supportsWebSearch(state.model)) return; state.webSearch = !state.webSearch; localStorage.setItem("chat_web_search", String(state.webSearch)); renderWebSearch(); });
 document.addEventListener("click", (event) => { if (!event.target.closest(".model-control")) { $("modelMenu").classList.add("hidden"); $("modelTrigger").setAttribute("aria-expanded", "false"); } });
 $("settingsButton").addEventListener("click", openSettings);
-$("topSettings").addEventListener("click", openSettings);
+$("topNewChat").addEventListener("click", newChat);
 function openSettings() { if (!state.connected) { openAuth(); return; } $("defaultModelSelect").value = state.defaultModel; $("displayNameInput").value = state.profile.displayName; $("aboutTextInput").value = state.profile.aboutText; $("memoryEnabledInput").checked = state.profile.memoryEnabled; $("accessCodeInput").value = ""; $("accessCodeInput").placeholder = state.token ? "Личная ссылка уже сохранена" : "Вставьте личную ссылку"; $("settingsDialog").showModal(); closeMobile(); }
 $("saveSettings").addEventListener("click", async () => {
   if (state.busy || voiceProcessing || voiceRecorder?.state === "recording") { showToast("Дождитесь завершения запроса."); return; }
