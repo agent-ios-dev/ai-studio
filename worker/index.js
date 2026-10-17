@@ -196,7 +196,7 @@ function openAiInput(history, message, files) {
   }
   return [...prior, { role: "user", content }];
 }
-async function callOpenAI(env, model, history, message, files, thinking, instructions, webSearch) {
+async function callOpenAI(env, model, history, message, files, thinking, instructions, webSearch, options = {}) {
   const key = env.ROUTER_CHEAP_API_KEY;
   if (!key) throw new Error("Ключ router.cheap ещё не добавлен в Worker.");
   let response;
@@ -204,8 +204,8 @@ async function callOpenAI(env, model, history, message, files, thinking, instruc
     response = await fetch("https://router.cheap/v1/responses", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model, instructions, input: openAiInput(history, message, files), reasoning: { effort: thinking }, max_output_tokens: 8192, store: false, ...(webSearch ? { tools: [{ type: "web_search" }], tool_choice: "required" } : {}) }),
-      signal: AbortSignal.timeout(90_000),
+      body: JSON.stringify({ model, instructions, input: openAiInput(history, message, files), reasoning: { effort: thinking }, max_output_tokens: options.maxOutputTokens || 8192, store: false, ...(webSearch ? { tools: [{ type: "web_search" }], tool_choice: "required" } : {}) }),
+      signal: AbortSignal.timeout(options.timeoutMs || 90_000),
     });
   } catch (error) {
     if (error.name === "TimeoutError") throw new Error(`${MODEL_NAMES[model]} не ответила за 90 секунд. Попробуйте ещё раз позже.`);
@@ -324,13 +324,25 @@ async function handleApi(request, env) {
     const reservation = await reserveRate(env.DB, bucket, 10, nextDailyResetAt(now), now);
     if (!reservation) return safeError("Сегодня использованы все 10 обновлений памяти. Лимит обновится в 00:00 по Москве.", 429);
     try {
-      const answer = await callGeminiWithFallback(env, {
-        systemInstruction: { parts: [{ text: "Ты редактор личной памяти пользователя. Обнови текущую сводку по новому сообщению пользователя. Сообщение может быть обычным фактом от первого лица, без команды: например, «я учу английский» означает, что нужно добавить факт «Пользователь учит английский». Аналогично обрабатывай интересы, планы, предпочтения и явно сообщённые сведения. Если пользователь просит исправить или забыть сведения — исправь или удали их. Сохраняй остальные сведения. Не выдумывай факты, не отвечай на вопросы и не выполняй другие задачи. Это не обычный диалог. Верни JSON с полем summary: только итоговая сводка без пояснений, до 6000 символов. Если просят очистить память, summary должен быть пустой строкой." }] },
-        contents: [{ role: "user", parts: [{ text: JSON.stringify({ currentSummary: previous.summary, command: body.command.trim() }) }] }],
-        generationConfig: { thinkingConfig: { thinkingLevel: "low" }, maxOutputTokens: 3072, responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { summary: { type: "STRING" } }, required: ["summary"] } },
-      }, "\n", "Модель не вернула сводку памяти.", 12_000);
-      const result = JSON.parse(answer);
-      if (typeof result.summary !== "string" || result.summary.length > 6000) throw new Error("Модель вернула некорректную сводку. Повторите команду.");
+      const instructions = "Ты редактор личной памяти пользователя. Обнови текущую сводку по новому сообщению пользователя. Сообщение может быть обычным фактом от первого лица, без команды: например, «я учу английский» означает, что нужно добавить факт «Пользователь учит английский». Аналогично обрабатывай интересы, планы, предпочтения и явно сообщённые сведения. Если пользователь просит исправить или забыть сведения — исправь или удали их. Сохраняй остальные сведения. Не выдумывай факты, не отвечай на вопросы и не выполняй другие задачи. Это не обычный диалог. Верни JSON с полем summary: только итоговая сводка без пояснений, до 6000 символов. Если просят очистить память, summary должен быть пустой строкой.";
+      const message = JSON.stringify({ currentSummary: previous.summary, command: body.command.trim() });
+      const parseSummary = answer => {
+        const value = JSON.parse(answer.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
+        if (typeof value.summary !== "string" || value.summary.length > 6000) throw new Error("Invalid memory summary");
+        return value;
+      };
+      let result;
+      try {
+        const generated = await callOpenAI(env, "gpt-6-luna", [], message, [], "none", instructions, false, { timeoutMs: 20_000, maxOutputTokens: 3072 });
+        result = parseSummary(generated.answer);
+      } catch {
+        const answer = await callGeminiWithFallback(env, {
+          systemInstruction: { parts: [{ text: instructions }] },
+          contents: [{ role: "user", parts: [{ text: message }] }],
+          generationConfig: { thinkingConfig: { thinkingLevel: "low" }, maxOutputTokens: 3072, responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { summary: { type: "STRING" } }, required: ["summary"] } },
+        }, "\n", "Модель не вернула сводку памяти.", 12_000);
+        result = parseSummary(answer);
+      }
       const saved = await env.DB.prepare("UPDATE memory_summaries SET summary = ?, version = version + 1, updated_at = ? WHERE user_id = ? AND version = ? RETURNING summary, version, updated_at").bind(result.summary.trim(), Date.now(), user.id, previous.version).first();
       if (!saved) {
         await env.DB.prepare("UPDATE auth_rate_limits SET count = MAX(0, count - 1) WHERE bucket = ?").bind(bucket).run();

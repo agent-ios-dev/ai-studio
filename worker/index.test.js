@@ -103,8 +103,8 @@ test("AI memory updates a separate private summary without creating chats or spe
   assert.equal(memory.version, 1);
   assert.equal(memory.remaining, 9);
   assert.match(memory.summary, /английский/);
-  assert.match(received[0].contents[0].parts[0].text, /я учу английский/);
-  assert.match(received[0].systemInstruction.parts[0].text, /без команды/);
+  assert.match(received.find(body => body.systemInstruction).contents[0].parts[0].text, /я учу английский/);
+  assert.match(received.find(body => body.systemInstruction).systemInstruction.parts[0].text, /без команды/);
   assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM chats").get().n, 0);
   assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM usage").get().n, 0);
   assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM smart_usage").get().n, 0);
@@ -114,7 +114,7 @@ test("AI memory updates a separate private summary without creating chats or spe
   assert.equal((await (await worker.fetch(makeRequest("/api/memory", TOKEN_A), environment)).json()).summary, memory.summary);
   const stale = await worker.fetch(makeRequest("/api/memory", TOKEN_A, "POST", { command: "Удали всё", version: 0 }), environment);
   assert.equal(stale.status, 409);
-  assert.equal(received.length, 1);
+  assert.equal(received.length, 2);
 });
 
 test("memory summary enters normal model context only with memory enabled, never temporary chats", async context => {
@@ -133,6 +133,25 @@ test("memory summary enters normal model context only with memory enabled, never
   db.sqlite.exec("UPDATE users SET memory_enabled = 0");
   assert.equal((await chat(false)).status, 200);
   assert.ok(!contexts[2].includes("SECRET_MEMORY_FACT"));
+});
+
+test("memory accepts a plain fact through Luna without a normal chat request", async context => {
+  const db = database();
+  setupUser(db, "memory-luna", TOKEN_A);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, "https://router.cheap/v1/responses");
+    const body = JSON.parse(options.body);
+    assert.equal(body.model, "gpt-6-luna");
+    assert.match(JSON.stringify(body.input), /я учу английский/);
+    return Response.json({ output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ summary: "Пользователь учит английский." }) }] }] });
+  };
+  context.after(() => { globalThis.fetch = originalFetch; db.sqlite.close(); });
+  const result = await worker.fetch(makeRequest("/api/memory", TOKEN_A, "POST", { command: "я учу английский", version: 0 }), env(db));
+  assert.equal(result.status, 200);
+  assert.match((await result.json()).summary, /английский/);
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM chats").get().n, 0);
+  assert.equal(db.sqlite.prepare("SELECT COUNT(*) AS n FROM usage").get().n, 0);
 });
 
 test("memory page toggle updates only the owner's memory setting and preserves profile and summary", async context => {
