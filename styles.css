@@ -79,3 +79,8 @@
 .composer-area{position:absolute;z-index:5;left:0;right:0;bottom:0;background:transparent;pointer-events:none;padding-bottom:max(14px,env(safe-area-inset-bottom))}
 .composer-area .composer{pointer-events:auto}
 @media(max-width:760px){.composer-area{padding-bottom:max(10px,env(safe-area-inset-bottom))}}
+
+/* Mirror the header fade beneath the composer for readable drafts. */
+.composer-area::before{content:"";position:absolute;inset:0;z-index:0;pointer-events:none;background:linear-gradient(0deg,rgba(0,0,0,.2),rgba(255,255,255,0))}
+.composer-area .composer-wrap{position:relative;z-index:1}
+@media(forced-colors:active){.composer-area::before{display:none}}
