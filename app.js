@@ -707,7 +707,10 @@ $("newChatIcon").addEventListener("click", newChat);
 $("temporaryChatButton").addEventListener("click", temporaryChat);
 $("sidebarToggle").addEventListener("click", () => $("appShell").classList.add("sidebar-hidden"));
 $("desktopOpen").addEventListener("click", () => $("appShell").classList.remove("sidebar-hidden"));
-$("mobileMenu").addEventListener("click", () => $("appShell").classList.add("mobile-open"));
+$("mobileMenu").addEventListener("click", () => {
+  if (window.matchMedia("(max-width: 760px)").matches) $("appShell").classList.add("mobile-open");
+  else $("appShell").classList.toggle("sidebar-hidden");
+});
 $("mobileScrim").addEventListener("click", closeMobile);
 $("modelTrigger").addEventListener("click", () => { if (!state.connected) { openSettings(); return; } const open = $("modelMenu").classList.toggle("hidden"); $("modelTrigger").setAttribute("aria-expanded", String(!open)); });
 $("thinkingSelect").addEventListener("change", () => { state.thinking[state.model] = $("thinkingSelect").value; localStorage.setItem("chat_thinking", JSON.stringify(state.thinking)); });
